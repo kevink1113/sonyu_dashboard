@@ -1,1 +1,521 @@
-Hello World
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black">
+    <meta name="apple-mobile-web-app-title" content="S Plänterwald">
+    <title>S Plänterwald – Abfahrtsmonitor</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Condensed:wght@400;700&family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+        html, body {
+            width:100%; height:100%; overflow:hidden;
+            font-family:'Roboto Condensed','Arial Narrow',Arial,sans-serif;
+            background:#003082; color:#fff;
+            touch-action:manipulation;
+        }
+        body { display:flex; flex-direction:column; }
+
+        /* Header */
+        .header {
+            display:flex; align-items:center; justify-content:space-between;
+            padding:18px 32px; background:#002266;
+            border-bottom:3px solid #FFD700;
+        }
+        .station-name { font-size:40px; font-weight:700; letter-spacing:1px; }
+        .header-right { display:flex; align-items:center; gap:28px; }
+        .platform-badge {
+            font-size:26px; font-weight:700;
+            background:#FFD700; color:#003082;
+            padding:6px 18px; border-radius:6px;
+        }
+        .clock {
+            font-family:'Roboto Mono',monospace;
+            font-size:40px; font-weight:700; color:#FFD700;
+        }
+
+        /* Departures */
+        .departures-section {
+            flex:1; display:flex; flex-direction:column;
+            justify-content:center; padding:20px 32px; gap:14px;
+        }
+        .departure-row {
+            display:flex; align-items:center;
+            padding:18px 24px; background:rgba(255,255,255,0.07);
+            border-radius:10px; cursor:pointer;
+            transition:background 0.2s; gap:22px;
+        }
+        .departure-row:active { background:rgba(255,255,255,0.16); }
+        .departure-row.cancelled-row { background:rgba(255,0,0,0.08); }
+        .departure-row.cancelled-row .dep-time,
+        .departure-row.cancelled-row .dep-direction {
+            text-decoration:line-through;
+            opacity:0.5;
+        }
+        .dep-time {
+            font-family:'Roboto Mono',monospace;
+            font-size:46px; font-weight:700;
+            min-width:155px; color:#FFD700;
+        }
+        .dep-line {
+            font-size:30px; font-weight:700;
+            padding:5px 14px; border-radius:18px;
+            color:#fff; min-width:76px; text-align:center;
+        }
+        .dep-direction {
+            font-size:34px; flex:1;
+            white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+        }
+        .dep-status { font-size:26px; font-weight:700; min-width:120px; text-align:right; }
+        .dep-status.on-time { color:#00CC66; }
+        .dep-status.delayed { color:#FF4444; }
+        .dep-status.cancelled { color:#FF0000; }
+        .no-data { font-size:26px; text-align:center; color:rgba(255,255,255,0.5); padding:36px; }
+
+        /* Disruptions Bar */
+        .disruptions-bar {
+            display:flex; align-items:center;
+            padding:14px 32px; background:#001a44;
+            border-top:2px solid rgba(255,255,255,0.15);
+            cursor:pointer; min-height:72px; gap:14px;
+        }
+        .disruptions-bar:active { background:#002255; }
+        .disruption-icon { font-size:30px; color:#FFA500; flex-shrink:0; }
+        .disruption-icon.ok { color:#00CC66; }
+        .disruption-text {
+            font-size:21px; flex:1; color:#FFA500;
+            white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+        }
+        .disruption-text.ok { color:#00CC66; }
+        .bus-icon-btn {
+            width:60px; height:60px; border-radius:50%;
+            background:#9B2790; border:3px solid #FFD700;
+            display:flex; align-items:center; justify-content:center;
+            cursor:pointer; flex-shrink:0; transition:transform 0.2s;
+            animation:busPulse 3s ease-in-out infinite;
+        }
+        .bus-icon-btn:active { transform:scale(0.9); }
+        .bus-icon-btn svg { width:34px; height:34px; fill:#fff; }
+        @keyframes busPulse {
+            0%,100% { box-shadow:0 0 0 0 rgba(255,215,0,0.4); }
+            50% { box-shadow:0 0 0 8px rgba(255,215,0,0); }
+        }
+
+        /* Modals */
+        .modal-overlay {
+            display:none; position:fixed; inset:0;
+            background:rgba(0,0,0,0.7); z-index:100;
+            align-items:center; justify-content:center;
+        }
+        .modal-overlay.active { display:flex; }
+        .modal {
+            background:#003082; border:2px solid #FFD700;
+            border-radius:14px; width:88%; max-width:780px; max-height:82vh;
+            overflow-y:auto;
+        }
+        .modal-header {
+            display:flex; align-items:center; justify-content:space-between;
+            padding:18px 26px; background:#002266;
+            border-bottom:2px solid #FFD700;
+            border-radius:12px 12px 0 0;
+        }
+        .modal-title { font-size:26px; font-weight:700; }
+        .modal-close {
+            width:42px; height:42px; border-radius:50%;
+            background:rgba(255,255,255,0.15); border:none;
+            color:#fff; font-size:22px; cursor:pointer;
+            display:flex; align-items:center; justify-content:center;
+        }
+        .modal-close:active { background:rgba(255,255,255,0.3); }
+        .modal-body { padding:22px 26px; }
+
+        /* Detail rows */
+        .detail-row {
+            display:flex; padding:11px 0;
+            border-bottom:1px solid rgba(255,255,255,0.1); font-size:21px;
+        }
+        .detail-label { font-weight:700; min-width:170px; color:rgba(255,255,255,0.65); }
+        .detail-value { flex:1; }
+
+        /* Bus modal */
+        .bus-dep-row {
+            display:flex; align-items:center;
+            padding:14px; background:rgba(255,255,255,0.07);
+            border-radius:8px; margin-bottom:10px; gap:18px;
+        }
+        .bus-time {
+            font-family:'Roboto Mono',monospace;
+            font-size:30px; font-weight:700; color:#FFD700; min-width:95px;
+        }
+        .bus-badge {
+            font-size:22px; font-weight:700; padding:4px 12px;
+            border-radius:6px; background:#9B2790; color:#fff;
+            min-width:55px; text-align:center;
+        }
+        .bus-dir { font-size:22px; flex:1; }
+        .bus-status { font-size:19px; font-weight:700; }
+
+        /* Disruption items */
+        .disruption-item {
+            padding:14px; background:rgba(255,165,0,0.1);
+            border-left:4px solid #FFA500;
+            border-radius:0 8px 8px 0; margin-bottom:10px;
+        }
+        .disruption-item-title { font-size:20px; font-weight:700; color:#FFA500; margin-bottom:6px; }
+        .disruption-item-text { font-size:17px; color:rgba(255,255,255,0.85); line-height:1.5; }
+
+        /* Error indicator */
+        .error-ind {
+            position:fixed; top:14px; right:14px;
+            background:#FF4444; color:#fff; padding:6px 14px;
+            border-radius:6px; font-size:13px; z-index:50; display:none;
+        }
+        .error-ind.visible { display:block; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="station-name">S Plänterwald</div>
+        <div class="header-right">
+            <div class="platform-badge">Gl. 4</div>
+            <div class="clock" id="clock">--:--</div>
+        </div>
+    </div>
+
+    <div class="departures-section" id="departures">
+        <div class="no-data">Daten werden geladen…</div>
+    </div>
+
+    <div class="disruptions-bar" id="disruptions-bar">
+        <div class="disruption-icon" id="disrupt-icon">⚠</div>
+        <div class="disruption-text" id="disrupt-text">Störungsinformationen werden geladen…</div>
+        <div class="bus-icon-btn" id="bus-btn" title="Busabfahrten">
+            <svg viewBox="0 0 24 24"><path d="M4 16c0 .88.39 1.67 1 2.22V20c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h8v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1.78c.61-.55 1-1.34 1-2.22V6c0-3.5-3.58-4-8-4s-8 .5-8 4v10zm3.5 1c-.83 0-1.5-.67-1.5-1.5S6.67 14 7.5 14s1.5.67 1.5 1.5S8.33 17 7.5 17zm9 0c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zm1.5-6H6V6h12v5z"/></svg>
+        </div>
+    </div>
+
+    <!-- Departure Detail Modal -->
+    <div class="modal-overlay" id="dep-modal">
+        <div class="modal">
+            <div class="modal-header">
+                <div class="modal-title">Abfahrt Detail</div>
+                <button class="modal-close" id="dep-modal-close">✕</button>
+            </div>
+            <div class="modal-body" id="dep-modal-body"></div>
+        </div>
+    </div>
+
+    <!-- Disruption Detail Modal -->
+    <div class="modal-overlay" id="dis-modal">
+        <div class="modal">
+            <div class="modal-header">
+                <div class="modal-title">Aktuelle Störungen</div>
+                <button class="modal-close" id="dis-modal-close">✕</button>
+            </div>
+            <div class="modal-body" id="dis-modal-body"></div>
+        </div>
+    </div>
+
+    <!-- Bus Modal -->
+    <div class="modal-overlay" id="bus-modal">
+        <div class="modal">
+            <div class="modal-header">
+                <div class="modal-title">Köpenicker Landstr./Dammweg → Nord</div>
+                <button class="modal-close" id="bus-modal-close">✕</button>
+            </div>
+            <div class="modal-body" id="bus-modal-body">
+                <div class="no-data">Busdaten werden geladen…</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="error-ind" id="error-ind">Verbindungsfehler</div>
+
+    <script>
+    (function() {
+        'use strict';
+
+        const API = 'https://v6.vbb.transport.rest';
+        const SBAHN_ID = '900191002';
+        const BUS_ID = '900191511';
+        const PLATFORM = '4';
+        const REFRESH_MS = 30000;
+
+        const LINE_COLORS = {
+            S1:'#DA62AC', S2:'#005F27', S25:'#005F27', S26:'#005F27',
+            S3:'#0A4F8B', S41:'#A23B1F', S42:'#C46117',
+            S45:'#C88B37', S46:'#C88B37', S47:'#C88B37',
+            S5:'#FF5900', S7:'#6E3B90', S75:'#6E3B90',
+            S8:'#55A822', S85:'#55A822', S9:'#8B1C62'
+        };
+
+        const SOUTHBOUND = ['schöneweide','köpenick','müggelschlößchenweg','grünau','adlershof','rudow','bohnsdorf'];
+
+        let depData = [];
+        let disruptData = [];
+
+        // --- Helpers ---
+        function fmtTime(iso) {
+            if (!iso) return '--:--';
+            const d = new Date(iso);
+            return d.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'});
+        }
+        function delayMin(s) { return s ? Math.round(s/60) : 0; }
+        function lineColor(n) { return LINE_COLORS[n] || '#555'; }
+        function isNorthbound(dir) {
+            if (!dir) return false;
+            const l = dir.toLowerCase();
+            return !SOUTHBOUND.some(p => l.includes(p));
+        }
+
+        // --- Clock ---
+        function tick() {
+            document.getElementById('clock').textContent =
+                new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'});
+        }
+        tick(); setInterval(tick, 1000);
+
+        // --- API ---
+        async function fetchSBahn() {
+            const p = new URLSearchParams({
+                duration:'120', results:'20', remarks:'true',
+                suburban:'true', bus:'false', tram:'false',
+                subway:'false', express:'false', ferry:'false', regional:'false'
+            });
+            const r = await fetch(`${API}/stops/${SBAHN_ID}/departures?${p}`);
+            if (!r.ok) throw new Error(r.status);
+            const d = await r.json();
+            return Array.isArray(d) ? d : (d.departures || []);
+        }
+
+        async function fetchBus() {
+            const p = new URLSearchParams({
+                duration:'120', results:'20', remarks:'true',
+                bus:'true', suburban:'false', tram:'false',
+                subway:'false', express:'false', ferry:'false', regional:'false'
+            });
+            const r = await fetch(`${API}/stops/${BUS_ID}/departures?${p}`);
+            if (!r.ok) throw new Error(r.status);
+            const d = await r.json();
+            return Array.isArray(d) ? d : (d.departures || []);
+        }
+
+        // --- Disruption extraction ---
+        function extractDisruptions(deps) {
+            const seen = new Set();
+            const out = [];
+            for (const dep of deps) {
+                if (dep.cancelled) {
+                    const k = 'c-' + (dep.line?.name||'') + '-' + (dep.direction||'');
+                    if (!seen.has(k)) {
+                        seen.add(k);
+                        out.push({
+                            type:'cancellation', line:dep.line?.name,
+                            summary:(dep.line?.name||'Zug') + ' Ri. ' + (dep.direction||'?') + ' fällt aus',
+                            text: dep.remarks?.find(r=>r.type==='status')?.text || 'Zug fällt aus'
+                        });
+                    }
+                }
+                if (dep.remarks) {
+                    for (const rm of dep.remarks) {
+                        if (rm.type==='warning' || (rm.type==='status' && dep.cancelled)) {
+                            const k = rm.summary || rm.text || '';
+                            if (k && !seen.has(k)) {
+                                seen.add(k);
+                                out.push({
+                                    type:rm.type, line:dep.line?.name,
+                                    summary: rm.summary || (rm.text||'').substring(0,100),
+                                    text: rm.text || rm.summary || ''
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+            return out;
+        }
+
+        // --- Render departures ---
+        function renderDeps(deps) {
+            const el = document.getElementById('departures');
+            const p4 = deps.filter(d =>
+                d.platform === PLATFORM || d.plannedPlatform === PLATFORM
+            );
+            const upcoming = p4.slice(0, 2);
+            depData = upcoming;
+
+            if (!upcoming.length) {
+                el.innerHTML = '<div class="no-data">Keine Abfahrten auf Gleis 4</div>';
+                return;
+            }
+
+            el.innerHTML = upcoming.map((d,i) => {
+                const time = fmtTime(d.when || d.plannedWhen);
+                const line = d.line?.name || '?';
+                const dir = d.direction || '';
+                const dm = delayMin(d.delay);
+                const isCx = !!d.cancelled;
+                let statusTxt, statusCls;
+                if (isCx) { statusTxt='Fällt aus'; statusCls='cancelled'; }
+                else if (dm > 0) { statusTxt='+'+dm+' Min'; statusCls='delayed'; }
+                else { statusTxt='pünktl.'; statusCls='on-time'; }
+
+                return `<div class="departure-row${isCx?' cancelled-row':''}" data-idx="${i}">
+                    <div class="dep-time">${time}</div>
+                    <div class="dep-line" style="background:${lineColor(line)}">${line}</div>
+                    <div class="dep-direction">${dir}</div>
+                    <div class="dep-status ${statusCls}">${statusTxt}</div>
+                </div>`;
+            }).join('');
+
+            el.querySelectorAll('.departure-row').forEach(row => {
+                row.addEventListener('click', () => showDepDetail(+row.dataset.idx));
+            });
+        }
+
+        // --- Render disruptions bar ---
+        function renderDisruptions(list) {
+            disruptData = list;
+            const icon = document.getElementById('disrupt-icon');
+            const txt = document.getElementById('disrupt-text');
+            if (!list.length) {
+                icon.textContent = '✓'; icon.className = 'disruption-icon ok';
+                txt.textContent = 'Keine aktuellen Störungen';
+                txt.className = 'disruption-text ok';
+            } else {
+                icon.textContent = '⚠'; icon.className = 'disruption-icon';
+                txt.textContent = list.map(d=>d.summary).join(' · ');
+                txt.className = 'disruption-text';
+            }
+        }
+
+        // --- Departure detail modal ---
+        function showDepDetail(idx) {
+            const d = depData[idx]; if (!d) return;
+            const line = d.line?.name || '?';
+            const dm = delayMin(d.delay);
+            const isCx = !!d.cancelled;
+
+            let remarksHtml = '';
+            if (d.remarks && d.remarks.length) {
+                remarksHtml = d.remarks
+                    .filter(r => r.text)
+                    .map(r => `<div style="padding:4px 0;color:${r.type==='warning'?'#FFA500':'rgba(255,255,255,0.85)'}">${r.text}</div>`)
+                    .join('');
+            }
+
+            document.getElementById('dep-modal-body').innerHTML = `
+                <div class="detail-row">
+                    <div class="detail-label">Linie</div>
+                    <div class="detail-value"><span style="background:${lineColor(line)};padding:4px 12px;border-radius:12px;font-weight:700">${line}</span></div>
+                </div>
+                <div class="detail-row">
+                    <div class="detail-label">Richtung</div>
+                    <div class="detail-value">${d.direction||'—'}</div>
+                </div>
+                <div class="detail-row">
+                    <div class="detail-label">Gleis</div>
+                    <div class="detail-value">${d.platform||d.plannedPlatform||'—'}</div>
+                </div>
+                <div class="detail-row">
+                    <div class="detail-label">Planmäßig</div>
+                    <div class="detail-value">${fmtTime(d.plannedWhen)}</div>
+                </div>
+                <div class="detail-row">
+                    <div class="detail-label">Voraussichtlich</div>
+                    <div class="detail-value" style="color:${dm>0?'#FF4444':'#00CC66'}">
+                        ${fmtTime(d.when||d.plannedWhen)}${dm>0?' (+'+dm+' Min)':' (pünktlich)'}
+                    </div>
+                </div>
+                ${isCx?`<div class="detail-row"><div class="detail-label">Status</div><div class="detail-value" style="color:#FF0000;font-weight:700">FÄLLT AUS</div></div>`:''}
+                ${remarksHtml?`<div class="detail-row" style="flex-direction:column"><div class="detail-label" style="margin-bottom:6px">Hinweise</div><div class="detail-value">${remarksHtml}</div></div>`:''}
+            `;
+            openModal('dep-modal');
+        }
+
+        // --- Disruption detail modal ---
+        function showDisruptDetail() {
+            const body = document.getElementById('dis-modal-body');
+            if (!disruptData.length) {
+                body.innerHTML = '<div style="text-align:center;color:#00CC66;padding:20px;font-size:22px">Keine aktuellen Störungen</div>';
+            } else {
+                body.innerHTML = disruptData.map(d => `
+                    <div class="disruption-item">
+                        <div class="disruption-item-title">${d.line?'<span style="margin-right:6px">'+d.line+'</span>':''}${d.summary}</div>
+                        <div class="disruption-item-text">${d.text}</div>
+                    </div>`).join('');
+            }
+            openModal('dis-modal');
+        }
+
+        // --- Bus modal ---
+        async function showBusModal() {
+            openModal('bus-modal');
+            const body = document.getElementById('bus-modal-body');
+            body.innerHTML = '<div class="no-data">Busdaten werden geladen…</div>';
+            try {
+                const deps = await fetchBus();
+                const nb = deps.filter(d => !d.cancelled && isNorthbound(d.direction));
+                const up = nb.slice(0,2);
+                if (!up.length) {
+                    body.innerHTML = '<div class="no-data">Keine Busse Richtung Nord</div>';
+                    return;
+                }
+                body.innerHTML = up.map(d => {
+                    const dm = delayMin(d.delay);
+                    return `<div class="bus-dep-row">
+                        <div class="bus-time">${fmtTime(d.when||d.plannedWhen)}</div>
+                        <div class="bus-badge">${d.line?.name||'?'}</div>
+                        <div class="bus-dir">${d.direction||''}</div>
+                        <div class="bus-status" style="color:${dm>0?'#FF4444':'#00CC66'}">${dm>0?'+'+dm+' Min':'pünktl.'}</div>
+                    </div>`;
+                }).join('');
+            } catch(e) {
+                body.innerHTML = '<div class="no-data" style="color:#FF4444">Fehler beim Laden</div>';
+            }
+        }
+
+        // --- Modal helpers ---
+        function openModal(id) { document.getElementById(id).classList.add('active'); }
+        function closeModal(id) { document.getElementById(id).classList.remove('active'); }
+
+        document.querySelectorAll('.modal-overlay').forEach(ov => {
+            ov.addEventListener('click', e => { if (e.target===ov) ov.classList.remove('active'); });
+        });
+        document.getElementById('dep-modal-close').addEventListener('click', ()=>closeModal('dep-modal'));
+        document.getElementById('dis-modal-close').addEventListener('click', ()=>closeModal('dis-modal'));
+        document.getElementById('bus-modal-close').addEventListener('click', ()=>closeModal('bus-modal'));
+
+        // --- Event bindings ---
+        document.getElementById('disruptions-bar').addEventListener('click', e => {
+            if (e.target.closest('.bus-icon-btn')) return;
+            showDisruptDetail();
+        });
+        document.getElementById('bus-btn').addEventListener('click', e => {
+            e.stopPropagation();
+            showBusModal();
+        });
+
+        // --- Main refresh ---
+        async function refresh() {
+            try {
+                const deps = await fetchSBahn();
+                renderDeps(deps);
+                renderDisruptions(extractDisruptions(deps));
+                document.getElementById('error-ind').classList.remove('visible');
+            } catch(e) {
+                console.error('Refresh failed:', e);
+                document.getElementById('error-ind').classList.add('visible');
+            }
+        }
+
+        refresh();
+        setInterval(refresh, REFRESH_MS);
+    })();
+    </script>
+</body>
+</html>
