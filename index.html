@@ -9,193 +9,256 @@
     <title>S Plänterwald – Abfahrtsmonitor</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Roboto+Condensed:wght@400;700&family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Condensed:ital,wght@0,300;0,400;0,700;1,300;1,400&family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
     <style>
+        :root {
+            --bg: #003082;
+            --bg-dark: #002266;
+            --white: #ffffff;
+            --sep: rgba(255,255,255,0.28);
+            --pad: 44px;
+            --col-left: 270px;
+            --col-right: 140px;
+        }
         * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
         html, body {
             width:100%; height:100%; overflow:hidden;
             font-family:'Roboto Condensed','Arial Narrow',Arial,sans-serif;
-            background:#003082; color:#fff;
+            background:var(--bg); color:var(--white);
             touch-action:manipulation;
         }
         body { display:flex; flex-direction:column; }
 
-        /* Header */
-        .header {
-            display:flex; align-items:center; justify-content:space-between;
-            padding:18px 32px; background:#002266;
-            border-bottom:3px solid #FFD700;
+        /* ── Station Name ── */
+        .station-name {
+            text-align:center; font-size:60px; font-weight:400;
+            padding:28px 0 22px; letter-spacing:1px;
         }
-        .station-name { font-size:40px; font-weight:700; letter-spacing:1px; }
-        .header-right { display:flex; align-items:center; gap:28px; }
-        .platform-badge {
-            font-size:26px; font-weight:700;
-            background:#FFD700; color:#003082;
-            padding:6px 18px; border-radius:6px;
+        .sep { border:none; border-top:1px solid var(--sep); margin:0 var(--pad); }
+
+        /* ── Header Bar ── */
+        .header-bar {
+            display:flex; align-items:center;
+            padding:14px var(--pad); gap:16px;
         }
-        .clock {
-            font-family:'Roboto Mono',monospace;
-            font-size:40px; font-weight:700; color:#FFD700;
+        .hdr-clock {
+            display:flex; align-items:center; gap:10px;
+            min-width:var(--col-left);
+        }
+        .clock-icon {
+            width:30px; height:30px; border:2px solid var(--white);
+            border-radius:50%; position:relative; flex-shrink:0;
+        }
+        .clock-icon::before {
+            content:''; position:absolute;
+            top:5px; left:50%; width:2px; height:9px;
+            background:var(--white); transform:translateX(-50%);
+            transform-origin:bottom center;
+        }
+        .clock-icon::after {
+            content:''; position:absolute;
+            top:50%; left:50%; width:7px; height:2px;
+            background:var(--white); transform-origin:left center;
+        }
+        .clock-time {
+            font-size:32px; font-weight:700;
+        }
+        .hdr-label { flex:1; font-size:30px; }
+        .hdr-label em { font-weight:300; }
+        .db-logo {
+            width:52px; height:38px; border:2.5px solid var(--white);
+            border-radius:8px; display:flex; align-items:center;
+            justify-content:center; font-size:20px; font-weight:700;
+            flex-shrink:0; letter-spacing:1px;
         }
 
-        /* Departures */
-        .departures-section {
+        /* ── Column Headers ── */
+        .col-headers {
+            display:flex; padding:10px var(--pad) 12px;
+            font-size:15px; color:rgba(255,255,255,0.85);
+            line-height:1.5;
+        }
+        .col-hdr-left { min-width:var(--col-left); }
+        .col-hdr-mid { flex:1; }
+        .col-hdr-right { min-width:var(--col-right); text-align:right; }
+        .col-headers em { font-weight:300; }
+
+        /* ── Departures ── */
+        .dep-section {
             flex:1; display:flex; flex-direction:column;
-            justify-content:center; padding:20px 32px; gap:14px;
+            justify-content:flex-start; padding-top:4px;
         }
-        .departure-row {
-            display:flex; align-items:center;
-            padding:18px 24px; background:rgba(255,255,255,0.07);
-            border-radius:10px; cursor:pointer;
-            transition:background 0.2s; gap:22px;
+        .dep-entry {
+            padding:10px var(--pad) 16px;
+            cursor:pointer; transition:background 0.15s;
         }
-        .departure-row:active { background:rgba(255,255,255,0.16); }
-        .departure-row.cancelled-row { background:rgba(255,0,0,0.08); }
-        .departure-row.cancelled-row .dep-time,
-        .departure-row.cancelled-row .dep-direction {
-            text-decoration:line-through;
-            opacity:0.5;
+        .dep-entry:active { background:rgba(255,255,255,0.06); }
+        .dep-entry.cancelled .dep-lg .col-l,
+        .dep-entry.cancelled .dep-lg .col-m {
+            text-decoration:line-through; opacity:0.45;
         }
-        .dep-time {
-            font-family:'Roboto Mono',monospace;
-            font-size:46px; font-weight:700;
-            min-width:155px; color:#FFD700;
+        .dep-sm {
+            display:flex; font-size:18px;
+            color:rgba(255,255,255,0.8); margin-bottom:2px;
         }
-        .dep-line {
-            font-size:30px; font-weight:700;
-            padding:5px 14px; border-radius:18px;
-            color:#fff; min-width:76px; text-align:center;
+        .dep-sm .col-l { min-width:var(--col-left); }
+        .dep-sm .col-m { flex:1; }
+        .dep-lg { display:flex; align-items:baseline; }
+        .dep-lg .col-l {
+            min-width:var(--col-left); font-size:54px; font-weight:400;
+            display:flex; align-items:baseline; gap:12px;
         }
-        .dep-direction {
-            font-size:34px; flex:1;
-            white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+        .dep-lg .col-m { flex:1; font-size:42px; font-weight:400; }
+        .dep-lg .col-r {
+            min-width:var(--col-right); text-align:right;
+            font-size:54px; font-weight:400;
         }
-        .dep-status { font-size:26px; font-weight:700; min-width:120px; text-align:right; }
-        .dep-status.on-time { color:#00CC66; }
-        .dep-status.delayed { color:#FF4444; }
-        .dep-status.cancelled { color:#FF0000; }
-        .no-data { font-size:26px; text-align:center; color:rgba(255,255,255,0.5); padding:36px; }
-
-        /* Disruptions Bar */
-        .disruptions-bar {
-            display:flex; align-items:center;
-            padding:14px 32px; background:#001a44;
-            border-top:2px solid rgba(255,255,255,0.15);
-            cursor:pointer; min-height:72px; gap:14px;
+        .delay-badge {
+            display:inline-block; background:var(--white);
+            color:var(--bg); font-size:18px; font-weight:700;
+            padding:2px 8px; border-radius:4px; vertical-align:middle;
+            position:relative; top:-4px;
         }
-        .disruptions-bar:active { background:#002255; }
-        .disruption-icon { font-size:30px; color:#FFA500; flex-shrink:0; }
-        .disruption-icon.ok { color:#00CC66; }
-        .disruption-text {
-            font-size:21px; flex:1; color:#FFA500;
-            white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+        .cancelled-badge {
+            display:inline-block; background:#cc0000;
+            color:var(--white); font-size:16px; font-weight:700;
+            padding:2px 8px; border-radius:4px; vertical-align:middle;
+            position:relative; top:-4px;
         }
-        .disruption-text.ok { color:#00CC66; }
-        .bus-icon-btn {
-            width:60px; height:60px; border-radius:50%;
-            background:#9B2790; border:3px solid #FFD700;
-            display:flex; align-items:center; justify-content:center;
-            cursor:pointer; flex-shrink:0; transition:transform 0.2s;
-            animation:busPulse 3s ease-in-out infinite;
-        }
-        .bus-icon-btn:active { transform:scale(0.9); }
-        .bus-icon-btn svg { width:34px; height:34px; fill:#fff; }
-        @keyframes busPulse {
-            0%,100% { box-shadow:0 0 0 0 rgba(255,215,0,0.4); }
-            50% { box-shadow:0 0 0 8px rgba(255,215,0,0); }
+        .no-data {
+            font-size:26px; text-align:center;
+            color:rgba(255,255,255,0.45); padding:50px var(--pad);
         }
 
-        /* Modals */
+        /* ── Bottom Bar ── */
+        .bottom-bar {
+            display:flex; align-items:center;
+            padding:18px var(--pad); gap:20px;
+        }
+        .disrupt-area {
+            flex:1; cursor:pointer;
+            font-size:18px; font-style:italic;
+            color:rgba(255,255,255,0.75);
+            white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+        }
+        .disrupt-area:active { color:var(--white); }
+        .disrupt-area.warn { color:#f0a030; }
+        .bus-btn {
+            width:68px; height:68px; border-radius:50%;
+            background:#E6007E; display:flex; align-items:center;
+            justify-content:center; cursor:pointer; flex-shrink:0;
+            font-size:17px; font-weight:700; color:var(--white);
+            letter-spacing:0.5px; transition:transform 0.15s;
+        }
+        .bus-btn:active { transform:scale(0.9); }
+
+        /* ── Modals ── */
         .modal-overlay {
             display:none; position:fixed; inset:0;
-            background:rgba(0,0,0,0.7); z-index:100;
+            background:rgba(0,0,20,0.75); z-index:100;
             align-items:center; justify-content:center;
         }
         .modal-overlay.active { display:flex; }
         .modal {
-            background:#003082; border:2px solid #FFD700;
+            background:var(--bg); border:2px solid rgba(255,255,255,0.35);
             border-radius:14px; width:88%; max-width:780px; max-height:82vh;
             overflow-y:auto;
         }
         .modal-header {
             display:flex; align-items:center; justify-content:space-between;
-            padding:18px 26px; background:#002266;
-            border-bottom:2px solid #FFD700;
+            padding:18px 26px; background:var(--bg-dark);
+            border-bottom:1px solid var(--sep);
             border-radius:12px 12px 0 0;
         }
         .modal-title { font-size:26px; font-weight:700; }
         .modal-close {
             width:42px; height:42px; border-radius:50%;
-            background:rgba(255,255,255,0.15); border:none;
-            color:#fff; font-size:22px; cursor:pointer;
+            background:rgba(255,255,255,0.12); border:none;
+            color:var(--white); font-size:22px; cursor:pointer;
             display:flex; align-items:center; justify-content:center;
         }
-        .modal-close:active { background:rgba(255,255,255,0.3); }
+        .modal-close:active { background:rgba(255,255,255,0.25); }
         .modal-body { padding:22px 26px; }
 
-        /* Detail rows */
+        /* Detail rows in modals */
         .detail-row {
             display:flex; padding:11px 0;
             border-bottom:1px solid rgba(255,255,255,0.1); font-size:21px;
         }
-        .detail-label { font-weight:700; min-width:170px; color:rgba(255,255,255,0.65); }
+        .detail-label { font-weight:700; min-width:170px; color:rgba(255,255,255,0.6); }
         .detail-value { flex:1; }
 
-        /* Bus modal */
-        .bus-dep-row {
-            display:flex; align-items:center;
-            padding:14px; background:rgba(255,255,255,0.07);
-            border-radius:8px; margin-bottom:10px; gap:18px;
+        /* Bus modal rows */
+        .bus-entry {
+            padding:10px 0 14px;
+            border-bottom:1px solid var(--sep);
         }
-        .bus-time {
-            font-family:'Roboto Mono',monospace;
-            font-size:30px; font-weight:700; color:#FFD700; min-width:95px;
-        }
-        .bus-badge {
-            font-size:22px; font-weight:700; padding:4px 12px;
-            border-radius:6px; background:#9B2790; color:#fff;
-            min-width:55px; text-align:center;
-        }
-        .bus-dir { font-size:22px; flex:1; }
-        .bus-status { font-size:19px; font-weight:700; }
+        .bus-entry:last-child { border-bottom:none; }
+        .bus-sm { font-size:17px; color:rgba(255,255,255,0.75); margin-bottom:2px; }
+        .bus-lg { display:flex; align-items:baseline; }
+        .bus-lg .bl { min-width:160px; font-size:36px; font-weight:400; display:flex; align-items:baseline; gap:10px; }
+        .bus-lg .bm { flex:1; font-size:30px; font-weight:400; }
 
-        /* Disruption items */
+        /* Disruption list */
         .disruption-item {
-            padding:14px; background:rgba(255,165,0,0.1);
-            border-left:4px solid #FFA500;
+            padding:14px; background:rgba(255,165,0,0.08);
+            border-left:4px solid #f0a030;
             border-radius:0 8px 8px 0; margin-bottom:10px;
         }
-        .disruption-item-title { font-size:20px; font-weight:700; color:#FFA500; margin-bottom:6px; }
+        .disruption-item-title { font-size:20px; font-weight:700; color:#f0a030; margin-bottom:6px; }
         .disruption-item-text { font-size:17px; color:rgba(255,255,255,0.85); line-height:1.5; }
 
-        /* Error indicator */
+        /* Error */
         .error-ind {
-            position:fixed; top:14px; right:14px;
-            background:#FF4444; color:#fff; padding:6px 14px;
+            position:fixed; top:12px; right:12px;
+            background:#cc0000; color:var(--white); padding:6px 14px;
             border-radius:6px; font-size:13px; z-index:50; display:none;
         }
         .error-ind.visible { display:block; }
     </style>
 </head>
 <body>
-    <div class="header">
-        <div class="station-name">S Plänterwald</div>
-        <div class="header-right">
-            <div class="platform-badge">Gl. 4</div>
-            <div class="clock" id="clock">--:--</div>
+
+    <!-- Station Name -->
+    <div class="station-name">S Plänterwald</div>
+    <hr class="sep">
+
+    <!-- Header Bar -->
+    <div class="header-bar">
+        <div class="hdr-clock">
+            <div class="clock-icon"></div>
+            <div class="clock-time" id="clock">--:--</div>
+        </div>
+        <div class="hdr-label">Abfahrt&ensp;<em>Departure</em></div>
+        <div class="db-logo">DB</div>
+    </div>
+    <hr class="sep">
+
+    <!-- Column Headers -->
+    <div class="col-headers">
+        <div class="col-hdr-left">
+            <div>Zug / <em>Train</em></div>
+            <div>Zeit / <em>Time</em></div>
+        </div>
+        <div class="col-hdr-mid">
+            <div>Über / <em>Via</em></div>
+            <div>Ziel / <em>Destination</em></div>
+        </div>
+        <div class="col-hdr-right">
+            <div>Gleis / <em>Track</em></div>
         </div>
     </div>
+    <hr class="sep">
 
-    <div class="departures-section" id="departures">
+    <!-- Departures -->
+    <div class="dep-section" id="departures">
         <div class="no-data">Daten werden geladen…</div>
     </div>
 
-    <div class="disruptions-bar" id="disruptions-bar">
-        <div class="disruption-icon" id="disrupt-icon">⚠</div>
-        <div class="disruption-text" id="disrupt-text">Störungsinformationen werden geladen…</div>
-        <div class="bus-icon-btn" id="bus-btn" title="Busabfahrten">
-            <svg viewBox="0 0 24 24"><path d="M4 16c0 .88.39 1.67 1 2.22V20c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h8v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1.78c.61-.55 1-1.34 1-2.22V6c0-3.5-3.58-4-8-4s-8 .5-8 4v10zm3.5 1c-.83 0-1.5-.67-1.5-1.5S6.67 14 7.5 14s1.5.67 1.5 1.5S8.33 17 7.5 17zm9 0c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zm1.5-6H6V6h12v5z"/></svg>
-        </div>
+    <!-- Bottom Bar -->
+    <div class="bottom-bar">
+        <div class="disrupt-area" id="disrupt-area">Störungsinformationen werden geladen…</div>
+        <div class="bus-btn" id="bus-btn">BUS</div>
     </div>
 
     <!-- Departure Detail Modal -->
@@ -239,19 +302,11 @@
     (function() {
         'use strict';
 
-        const API = 'https://v6.vbb.transport.rest';
+        const API = 'https://v6.bvg.transport.rest';
         const SBAHN_ID = '900191002';
         const BUS_ID = '900191511';
         const PLATFORM = '4';
         const REFRESH_MS = 30000;
-
-        const LINE_COLORS = {
-            S1:'#DA62AC', S2:'#005F27', S25:'#005F27', S26:'#005F27',
-            S3:'#0A4F8B', S41:'#A23B1F', S42:'#C46117',
-            S45:'#C88B37', S46:'#C88B37', S47:'#C88B37',
-            S5:'#FF5900', S7:'#6E3B90', S75:'#6E3B90',
-            S8:'#55A822', S85:'#55A822', S9:'#8B1C62'
-        };
 
         const SOUTHBOUND = ['schöneweide','köpenick','müggelschlößchenweg','grünau','adlershof','rudow','bohnsdorf'];
 
@@ -264,12 +319,23 @@
             const d = new Date(iso);
             return d.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'});
         }
+        function fmtTimeShort(iso) {
+            if (!iso) return '--:--';
+            const d = new Date(iso);
+            const h = d.getHours();
+            const m = String(d.getMinutes()).padStart(2,'0');
+            return h + ':' + m;
+        }
         function delayMin(s) { return s ? Math.round(s/60) : 0; }
-        function lineColor(n) { return LINE_COLORS[n] || '#555'; }
         function isNorthbound(dir) {
             if (!dir) return false;
             const l = dir.toLowerCase();
             return !SOUTHBOUND.some(p => l.includes(p));
+        }
+        function esc(s) {
+            const d = document.createElement('div');
+            d.textContent = s;
+            return d.innerHTML;
         }
 
         // --- Clock ---
@@ -315,7 +381,7 @@
                         seen.add(k);
                         out.push({
                             type:'cancellation', line:dep.line?.name,
-                            summary:(dep.line?.name||'Zug') + ' Ri. ' + (dep.direction||'?') + ' fällt aus',
+                            summary:(dep.line?.name||'Zug')+' Ri. '+(dep.direction||'?')+' fällt aus',
                             text: dep.remarks?.find(r=>r.type==='status')?.text || 'Zug fällt aus'
                         });
                     }
@@ -328,7 +394,7 @@
                                 seen.add(k);
                                 out.push({
                                     type:rm.type, line:dep.line?.name,
-                                    summary: rm.summary || (rm.text||'').substring(0,100),
+                                    summary: rm.summary || (rm.text||'').substring(0,120),
                                     text: rm.text || rm.summary || ''
                                 });
                             }
@@ -354,25 +420,43 @@
             }
 
             el.innerHTML = upcoming.map((d,i) => {
-                const time = fmtTime(d.when || d.plannedWhen);
                 const line = d.line?.name || '?';
-                const dir = d.direction || '';
-                const dm = delayMin(d.delay);
+                const dir = esc(d.direction || '');
+                const plannedTime = fmtTimeShort(d.plannedWhen);
                 const isCx = !!d.cancelled;
-                let statusTxt, statusCls;
-                if (isCx) { statusTxt='Fällt aus'; statusCls='cancelled'; }
-                else if (dm > 0) { statusTxt='+'+dm+' Min'; statusCls='delayed'; }
-                else { statusTxt='pünktl.'; statusCls='on-time'; }
+                const dm = delayMin(d.delay);
+                const actualTime = d.when ? fmtTime(d.when) : null;
 
-                return `<div class="departure-row${isCx?' cancelled-row':''}" data-idx="${i}">
-                    <div class="dep-time">${time}</div>
-                    <div class="dep-line" style="background:${lineColor(line)}">${line}</div>
-                    <div class="dep-direction">${dir}</div>
-                    <div class="dep-status ${statusCls}">${statusTxt}</div>
-                </div>`;
+                // Build delay/cancel badge
+                let badge = '';
+                if (isCx) {
+                    badge = '<span class="cancelled-badge">Fällt aus</span>';
+                } else if (dm > 0 && actualTime) {
+                    badge = '<span class="delay-badge">' + actualTime + '</span>';
+                }
+
+                // Via info from remarks hints (if any route-like text exists)
+                const hints = (d.remarks||[])
+                    .filter(r => r.type==='hint' && r.text && r.code !== 'OPERATOR' && !r.text.includes('occupancy'))
+                    .map(r => r.text);
+                const via = hints.length ? esc(hints[0]) : '';
+
+                const platform = d.platform || d.plannedPlatform || '';
+
+                return `<div class="dep-entry${isCx?' cancelled':''}" data-idx="${i}">
+                    <div class="dep-sm">
+                        <div class="col-l">${esc(line)}</div>
+                        <div class="col-m">${via}</div>
+                    </div>
+                    <div class="dep-lg">
+                        <div class="col-l">${plannedTime} ${badge}</div>
+                        <div class="col-m">${dir}</div>
+                        <div class="col-r">${esc(platform)}</div>
+                    </div>
+                </div><hr class="sep">`;
             }).join('');
 
-            el.querySelectorAll('.departure-row').forEach(row => {
+            el.querySelectorAll('.dep-entry').forEach(row => {
                 row.addEventListener('click', () => showDepDetail(+row.dataset.idx));
             });
         }
@@ -380,16 +464,13 @@
         // --- Render disruptions bar ---
         function renderDisruptions(list) {
             disruptData = list;
-            const icon = document.getElementById('disrupt-icon');
-            const txt = document.getElementById('disrupt-text');
+            const el = document.getElementById('disrupt-area');
             if (!list.length) {
-                icon.textContent = '✓'; icon.className = 'disruption-icon ok';
-                txt.textContent = 'Keine aktuellen Störungen';
-                txt.className = 'disruption-text ok';
+                el.textContent = 'Keine aktuellen Störungen';
+                el.className = 'disrupt-area';
             } else {
-                icon.textContent = '⚠'; icon.className = 'disruption-icon';
-                txt.textContent = list.map(d=>d.summary).join(' · ');
-                txt.className = 'disruption-text';
+                el.textContent = list.map(d => d.summary).join(' · ');
+                el.className = 'disrupt-area warn';
             }
         }
 
@@ -404,22 +485,22 @@
             if (d.remarks && d.remarks.length) {
                 remarksHtml = d.remarks
                     .filter(r => r.text)
-                    .map(r => `<div style="padding:4px 0;color:${r.type==='warning'?'#FFA500':'rgba(255,255,255,0.85)'}">${r.text}</div>`)
+                    .map(r => `<div style="padding:4px 0;color:${r.type==='warning'?'#f0a030':'rgba(255,255,255,0.85)'}">${esc(r.text)}</div>`)
                     .join('');
             }
 
             document.getElementById('dep-modal-body').innerHTML = `
                 <div class="detail-row">
                     <div class="detail-label">Linie</div>
-                    <div class="detail-value"><span style="background:${lineColor(line)};padding:4px 12px;border-radius:12px;font-weight:700">${line}</span></div>
+                    <div class="detail-value" style="font-weight:700;font-size:24px">${esc(line)}</div>
                 </div>
                 <div class="detail-row">
                     <div class="detail-label">Richtung</div>
-                    <div class="detail-value">${d.direction||'—'}</div>
+                    <div class="detail-value">${esc(d.direction||'—')}</div>
                 </div>
                 <div class="detail-row">
                     <div class="detail-label">Gleis</div>
-                    <div class="detail-value">${d.platform||d.plannedPlatform||'—'}</div>
+                    <div class="detail-value">${esc(d.platform||d.plannedPlatform||'—')}</div>
                 </div>
                 <div class="detail-row">
                     <div class="detail-label">Planmäßig</div>
@@ -427,12 +508,12 @@
                 </div>
                 <div class="detail-row">
                     <div class="detail-label">Voraussichtlich</div>
-                    <div class="detail-value" style="color:${dm>0?'#FF4444':'#00CC66'}">
+                    <div class="detail-value" style="color:${dm>0?'#FF4444':'#66dd88'}">
                         ${fmtTime(d.when||d.plannedWhen)}${dm>0?' (+'+dm+' Min)':' (pünktlich)'}
                     </div>
                 </div>
-                ${isCx?`<div class="detail-row"><div class="detail-label">Status</div><div class="detail-value" style="color:#FF0000;font-weight:700">FÄLLT AUS</div></div>`:''}
-                ${remarksHtml?`<div class="detail-row" style="flex-direction:column"><div class="detail-label" style="margin-bottom:6px">Hinweise</div><div class="detail-value">${remarksHtml}</div></div>`:''}
+                ${isCx?'<div class="detail-row"><div class="detail-label">Status</div><div class="detail-value" style="color:#cc0000;font-weight:700">FÄLLT AUS</div></div>':''}
+                ${remarksHtml?'<div class="detail-row" style="flex-direction:column"><div class="detail-label" style="margin-bottom:6px">Hinweise</div><div class="detail-value">'+remarksHtml+'</div></div>':''}
             `;
             openModal('dep-modal');
         }
@@ -441,12 +522,12 @@
         function showDisruptDetail() {
             const body = document.getElementById('dis-modal-body');
             if (!disruptData.length) {
-                body.innerHTML = '<div style="text-align:center;color:#00CC66;padding:20px;font-size:22px">Keine aktuellen Störungen</div>';
+                body.innerHTML = '<div style="text-align:center;color:#66dd88;padding:24px;font-size:22px">Keine aktuellen Störungen</div>';
             } else {
                 body.innerHTML = disruptData.map(d => `
                     <div class="disruption-item">
-                        <div class="disruption-item-title">${d.line?'<span style="margin-right:6px">'+d.line+'</span>':''}${d.summary}</div>
-                        <div class="disruption-item-text">${d.text}</div>
+                        <div class="disruption-item-title">${d.line?'<span style="margin-right:6px">'+esc(d.line)+'</span>':''}${esc(d.summary)}</div>
+                        <div class="disruption-item-text">${esc(d.text)}</div>
                     </div>`).join('');
             }
             openModal('dis-modal');
@@ -467,15 +548,22 @@
                 }
                 body.innerHTML = up.map(d => {
                     const dm = delayMin(d.delay);
-                    return `<div class="bus-dep-row">
-                        <div class="bus-time">${fmtTime(d.when||d.plannedWhen)}</div>
-                        <div class="bus-badge">${d.line?.name||'?'}</div>
-                        <div class="bus-dir">${d.direction||''}</div>
-                        <div class="bus-status" style="color:${dm>0?'#FF4444':'#00CC66'}">${dm>0?'+'+dm+' Min':'pünktl.'}</div>
+                    const plannedTime = fmtTimeShort(d.plannedWhen);
+                    const actualTime = d.when ? fmtTime(d.when) : null;
+                    let badge = '';
+                    if (dm > 0 && actualTime) {
+                        badge = '<span class="delay-badge" style="font-size:15px;top:-2px">' + actualTime + '</span>';
+                    }
+                    return `<div class="bus-entry">
+                        <div class="bus-sm">Bus ${esc(d.line?.name||'?')}</div>
+                        <div class="bus-lg">
+                            <div class="bl">${plannedTime} ${badge}</div>
+                            <div class="bm">${esc(d.direction||'')}</div>
+                        </div>
                     </div>`;
                 }).join('');
             } catch(e) {
-                body.innerHTML = '<div class="no-data" style="color:#FF4444">Fehler beim Laden</div>';
+                body.innerHTML = '<div class="no-data" style="color:#cc0000">Fehler beim Laden</div>';
             }
         }
 
@@ -491,14 +579,8 @@
         document.getElementById('bus-modal-close').addEventListener('click', ()=>closeModal('bus-modal'));
 
         // --- Event bindings ---
-        document.getElementById('disruptions-bar').addEventListener('click', e => {
-            if (e.target.closest('.bus-icon-btn')) return;
-            showDisruptDetail();
-        });
-        document.getElementById('bus-btn').addEventListener('click', e => {
-            e.stopPropagation();
-            showBusModal();
-        });
+        document.getElementById('disrupt-area').addEventListener('click', showDisruptDetail);
+        document.getElementById('bus-btn').addEventListener('click', showBusModal);
 
         // --- Main refresh ---
         async function refresh() {
