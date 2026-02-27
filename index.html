@@ -293,8 +293,7 @@
     (function() {
         'use strict';
 
-        const HAFAS = 'https://fahrinfo.vbb.de/bin/mgate.exe';
-        const HAFAS_BODY = {ver:'1.75',lang:'deu',auth:{type:'AID',aid:'hafas-vbb-webapp'},client:{id:'VBB',type:'WEB',name:'webapp'}};
+        const API = 'https://v6.bvg.transport.rest';
         const SBAHN_ID = '900191002';
         const BUS_ID = '900191511';
         const REFRESH_MS = 30000;
@@ -316,27 +315,17 @@
         function berlinNow() {
             return new Date(new Date().toLocaleString('en-US',{timeZone:'Europe/Berlin'}));
         }
-        function hafasDate(d) {
-            return d.getFullYear()+String(d.getMonth()+1).padStart(2,'0')+String(d.getDate()).padStart(2,'0');
+        function fmtTime(iso) {
+            if (!iso) return '--:--';
+            const d = new Date(iso);
+            return d.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit',timeZone:'Europe/Berlin'});
         }
-        function hafasTime(d) {
-            return String(d.getHours()).padStart(2,'0')+String(d.getMinutes()).padStart(2,'0')+'00';
-        }
-        function hhmm(timeStr) {
-            if (!timeStr||timeStr.length<4) return '--:--';
-            const h = parseInt(timeStr.substring(0,2));
-            const m = timeStr.substring(2,4);
-            return h+':'+m;
-        }
-        function hhmmPad(timeStr) {
-            if (!timeStr||timeStr.length<4) return '--:--';
-            return timeStr.substring(0,2)+':'+timeStr.substring(2,4);
-        }
-        function delaySec(planned,real) {
-            if (!planned||!real) return 0;
-            const p = parseInt(planned.substr(0,2))*3600+parseInt(planned.substr(2,2))*60+parseInt(planned.substr(4,2)||'0');
-            const r = parseInt(real.substr(0,2))*3600+parseInt(real.substr(2,2))*60+parseInt(real.substr(4,2)||'0');
-            return r-p;
+        function fmtTimeShort(iso) {
+            if (!iso) return '--:--';
+            const d = new Date(iso);
+            const h = d.toLocaleString('en-US',{hour:'numeric',hour12:false,timeZone:'Europe/Berlin'});
+            const m = String(d.toLocaleString('en-US',{minute:'2-digit',timeZone:'Europe/Berlin'})).padStart(2,'0');
+            return parseInt(h)+':'+m;
         }
         function delayMin(s) { return s ? Math.round(s/60) : 0; }
         function isNorthbound(dir) {
@@ -355,7 +344,6 @@
             const num = lineName.replace(/^S/,'');
             return '<span class="sbahn-icon" style="color:'+color+'">S</span><span class="sbahn-nr" style="color:'+color+'">'+esc(num)+'</span>';
         }
-        function stripHtml(s) { return (s||'').replace(/<[^>]*>/g,''); }
 
         // --- Clock ---
         function tick() {
@@ -368,78 +356,29 @@
         }
         tick(); setInterval(tick,1000);
 
-        // --- HAFAS API ---
-        async function hafasFetch(stopId, maxJny) {
-            const now = berlinNow();
-            const body = Object.assign({},HAFAS_BODY,{
-                id:'1',
-                svcReqL:[{
-                    req:{type:'DEP',stbLoc:{lid:'A=1@L='+stopId},maxJny:maxJny,
-                         date:hafasDate(now),time:hafasTime(now),dur:120},
-                    meth:'StationBoard'
-                }]
-            });
-            const r = await fetch(HAFAS,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-            if (!r.ok) throw new Error(r.status);
-            const data = await r.json();
-            if (data.err!=='OK') throw new Error(data.err);
-            return data.svcResL[0].res;
-        }
-
-        function parseHafas(res, filterLocX) {
-            const c = res.common||{};
-            const prodL = c.prodL||[];
-            const himL = c.himL||[];
-            const remL = c.remL||[];
-            const jnyL = res.jnyL||[];
-
-            return jnyL
-                .filter(j => filterLocX===undefined || (j.stbStop||{}).locX===filterLocX)
-                .map(j => {
-                    const prod = prodL[j.prodX]||{};
-                    const stb = j.stbStop||{};
-                    const pR = stb.dPltfR||stb.dPltfS||{};
-                    const pS = stb.dPltfS||{};
-                    const planned = stb.dTimeS||'';
-                    const real = stb.dTimeR||'';
-                    const delay = delaySec(planned,real);
-
-                    const remarks = [];
-                    if (j.msgL) {
-                        const seenHim = new Set();
-                        for (const msg of j.msgL) {
-                            if (msg.type==='HIM' && himL[msg.himX]) {
-                                const him = himL[msg.himX];
-                                if (!seenHim.has(him.hid)) {
-                                    seenHim.add(him.hid);
-                                    remarks.push({type:'warning',summary:him.head||'',text:stripHtml(him.text)});
-                                }
-                            }
-                        }
-                    }
-
-                    return {
-                        line:{name:prod.nameS||prod.name||'?',fahrtNr:(prod.prodCtx||{}).num||''},
-                        direction:j.dirTxt||'',
-                        platform:pR.txt||null,
-                        plannedPlatform:pS.txt||null,
-                        plannedTime:planned,
-                        realTime:real||planned,
-                        delay:delay,
-                        cancelled:j.status==='C',
-                        remarks:remarks
-                    };
-                });
-        }
-
+        // --- API ---
         async function fetchSBahn() {
-            const res = await hafasFetch(SBAHN_ID, 20);
-            return parseHafas(res, 0); // locX=0 = main S-Bahn stop
+            const p = new URLSearchParams({
+                duration:'120', results:'20', remarks:'true',
+                suburban:'true', bus:'false', tram:'false',
+                subway:'false', express:'false', ferry:'false', regional:'false'
+            });
+            const r = await fetch(API+'/stops/'+SBAHN_ID+'/departures?'+p);
+            if (!r.ok) throw new Error(r.status);
+            const d = await r.json();
+            return Array.isArray(d) ? d : (d.departures || []);
         }
 
         async function fetchBus() {
-            const res = await hafasFetch(BUS_ID, 15);
-            return parseHafas(res);
+            const p = new URLSearchParams({
+                duration:'120', results:'20', remarks:'true',
+                bus:'true', suburban:'false', tram:'false',
+                subway:'false', express:'false', ferry:'false', regional:'false'
+            });
+            const r = await fetch(API+'/stops/'+BUS_ID+'/departures?'+p);
+            if (!r.ok) throw new Error(r.status);
+            const d = await r.json();
+            return Array.isArray(d) ? d : (d.departures || []);
         }
 
         // --- Disruption extraction ---
@@ -448,13 +387,25 @@
             const out = [];
             for (const dep of deps) {
                 if (dep.cancelled) {
-                    const k = 'c-'+dep.line.name+'-'+dep.direction;
-                    if (!seen.has(k)) { seen.add(k); out.push({type:'cancellation',line:dep.line.name,summary:dep.line.name+' Ri. '+dep.direction+' fällt aus',text:'Zug fällt aus'}); }
+                    const k = 'c-'+(dep.line?.name||'')+'-'+(dep.direction||'');
+                    if (!seen.has(k)) {
+                        seen.add(k);
+                        out.push({type:'cancellation',line:dep.line?.name,
+                            summary:(dep.line?.name||'Zug')+' Ri. '+(dep.direction||'?')+' fällt aus',
+                            text:dep.remarks?.find(r=>r.type==='status')?.text||'Zug fällt aus'});
+                    }
                 }
-                for (const rm of dep.remarks) {
-                    if (rm.type==='warning') {
-                        const k = rm.summary||rm.text;
-                        if (k&&!seen.has(k)) { seen.add(k); out.push(rm); }
+                if (dep.remarks) {
+                    for (const rm of dep.remarks) {
+                        if (rm.type==='warning'||(rm.type==='status'&&dep.cancelled)) {
+                            const k = rm.summary||rm.text||'';
+                            if (k&&!seen.has(k)) {
+                                seen.add(k);
+                                out.push({type:rm.type,line:dep.line?.name,
+                                    summary:rm.summary||(rm.text||'').substring(0,120),
+                                    text:rm.text||rm.summary||''});
+                            }
+                        }
                     }
                 }
             }
@@ -473,22 +424,22 @@
             if (!upcoming.length) { el.innerHTML='<div class="no-data">Keine Abfahrten</div>'; return; }
 
             el.innerHTML = upcoming.map((d,i) => {
-                const line = d.line.name;
-                const dir = esc(d.direction);
-                const plannedTime = hhmm(d.plannedTime);
-                const isCx = d.cancelled;
+                const line = d.line?.name||'?';
+                const dir = esc(d.direction||'');
+                const plannedTime = fmtTimeShort(d.plannedWhen);
+                const isCx = !!d.cancelled;
                 const dm = delayMin(d.delay);
-                const fahrtNr = d.line.fahrtNr;
+                const actualTime = d.when ? fmtTime(d.when) : null;
 
                 let badge = '';
                 if (isCx) badge = '<span class="cancelled-badge">Fällt aus</span>';
-                else if (dm>0) badge = '<span class="delay-badge">'+hhmmPad(d.realTime)+'</span>';
+                else if (dm>0 && actualTime) badge = '<span class="delay-badge">'+actualTime+'</span>';
 
                 const platform = d.platform||d.plannedPlatform||'';
 
                 return '<div class="dep-entry'+(isCx?' cancelled':'')+'" data-idx="'+i+'">'+
                     '<div class="dep-sm">'+
-                        '<div class="col-l">'+sbahnIcon(line)+(fahrtNr?' <span style="margin-left:4px">'+esc(line)+' / '+esc(fahrtNr)+'</span>':'')+'</div>'+
+                        '<div class="col-l">'+sbahnIcon(line)+'<span style="margin-left:4px">'+esc(line)+'</span></div>'+
                         '<div class="col-m"></div>'+
                     '</div>'+
                     '<div class="dep-lg">'+
@@ -515,10 +466,10 @@
         // --- Departure detail modal ---
         function showDepDetail(idx) {
             const d = depData[idx]; if (!d) return;
-            const line = d.line.name;
+            const line = d.line?.name||'?';
             const dm = delayMin(d.delay);
-            const isCx = d.cancelled;
-            let remarksHtml = d.remarks.filter(r=>r.text).map(r =>
+            const isCx = !!d.cancelled;
+            let remarksHtml = (d.remarks||[]).filter(r=>r.text).map(r =>
                 '<div style="padding:4px 0;color:'+(r.type==='warning'?'#f0a030':'rgba(255,255,255,0.85)')+'">'+esc(r.text)+'</div>'
             ).join('');
 
@@ -526,8 +477,8 @@
                 '<div class="detail-row"><div class="detail-label">Linie</div><div class="detail-value" style="font-size:24px">'+sbahnIcon(line)+' '+esc(line)+'</div></div>'+
                 '<div class="detail-row"><div class="detail-label">Richtung</div><div class="detail-value">'+esc(d.direction||'—')+'</div></div>'+
                 '<div class="detail-row"><div class="detail-label">Gleis</div><div class="detail-value">'+esc(d.platform||d.plannedPlatform||'—')+'</div></div>'+
-                '<div class="detail-row"><div class="detail-label">Planmäßig</div><div class="detail-value">'+hhmmPad(d.plannedTime)+'</div></div>'+
-                '<div class="detail-row"><div class="detail-label">Voraussichtlich</div><div class="detail-value" style="color:'+(dm>0?'#FF4444':'#66dd88')+'">'+hhmmPad(d.realTime)+(dm>0?' (+'+dm+' Min)':' (pünktlich)')+'</div></div>'+
+                '<div class="detail-row"><div class="detail-label">Planmäßig</div><div class="detail-value">'+fmtTime(d.plannedWhen)+'</div></div>'+
+                '<div class="detail-row"><div class="detail-label">Voraussichtlich</div><div class="detail-value" style="color:'+(dm>0?'#FF4444':'#66dd88')+'">'+fmtTime(d.when||d.plannedWhen)+(dm>0?' (+'+dm+' Min)':' (pünktlich)')+'</div></div>'+
                 (isCx?'<div class="detail-row"><div class="detail-label">Status</div><div class="detail-value" style="color:#cc0000">FÄLLT AUS</div></div>':'')+
                 (remarksHtml?'<div class="detail-row" style="flex-direction:column"><div class="detail-label" style="margin-bottom:6px">Hinweise</div><div class="detail-value">'+remarksHtml+'</div></div>':'');
             openModal('dep-modal');
@@ -554,16 +505,18 @@
             try {
                 const deps = await fetchBus();
                 const nb = deps.filter(d=>!d.cancelled&&isNorthbound(d.direction));
-                const up = nb.slice(0,2);
+                const up = nb.slice(0,4);
                 if (!up.length) { body.innerHTML='<div class="no-data">Keine Busse Richtung Nord</div>'; return; }
                 body.innerHTML = up.map(d => {
                     const dm = delayMin(d.delay);
+                    const plannedTime = fmtTimeShort(d.plannedWhen);
+                    const actualTime = d.when ? fmtTime(d.when) : null;
                     let badge = '';
-                    if (dm>0) badge = '<span class="delay-badge" style="font-size:15px;top:-2px">'+hhmmPad(d.realTime)+'</span>';
-                    return '<div class="bus-entry"><div class="bus-sm">Bus '+esc(d.line.name)+'</div><div class="bus-lg"><div class="bl">'+hhmm(d.plannedTime)+' '+badge+'</div><div class="bm">'+esc(d.direction)+'</div></div></div>';
+                    if (dm>0 && actualTime) badge = '<span class="delay-badge" style="font-size:15px;top:-2px">'+actualTime+'</span>';
+                    return '<div class="bus-entry"><div class="bus-sm">Bus '+esc(d.line?.name||'?')+'</div><div class="bus-lg"><div class="bl">'+plannedTime+' '+badge+'</div><div class="bm">'+esc(d.direction||'')+'</div></div></div>';
                 }).join('');
             } catch(e) {
-                body.innerHTML='<div class="no-data" style="color:#cc0000">Fehler beim Laden</div>';
+                body.innerHTML='<div class="no-data" style="color:rgba(255,255,255,0.5)">Busdaten derzeit nicht verfügbar</div>';
             }
         }
 
