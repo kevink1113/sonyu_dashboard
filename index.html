@@ -107,8 +107,10 @@
         }
 
         /* S-Bahn line icon */
-        .sbahn-icon { font-family:'DBAG One'; font-size:22px; }
-        .sbahn-nr   { font-family:'DBAG Four'; font-size:22px; }
+        .sbahn-glyph { font-size:52px; line-height:1; vertical-align:middle; }
+        .sbahn-glyph.dbag-one { font-family:'DBAG One'; }
+        .sbahn-glyph.dbag-four { font-family:'DBAG Four'; }
+        .sbahn-dir { font-size:17px; color:rgba(255,255,255,0.75); margin-right:6px; }
 
         .delay-badge {
             display:inline-block; background:var(--white);
@@ -334,10 +336,19 @@
             return d.innerHTML;
         }
         function lineColor(name) { return LINE_COLORS[name] || '#999'; }
-        function sbahnIcon(lineName) {
+        const LINE_GLYPHS = {
+            S8:  {char:'H', font:'dbag-one'},
+            S9:  {char:'I', font:'dbag-one'},
+            S85: {char:'k', font:'dbag-four'}
+        };
+        function sbahnIcon(lineName, platform) {
             const color = lineColor(lineName);
-            const num = lineName.replace(/^S/,'');
-            return '<span class="sbahn-icon" style="color:'+color+'">S</span><span class="sbahn-nr" style="color:'+color+'">'+esc(num)+'</span>';
+            const g = LINE_GLYPHS[lineName];
+            const dirLabel = platform==='3'?'Südliche ':'Nördliche ';
+            if (g) {
+                return '<span class="sbahn-dir">'+dirLabel+'</span><span class="sbahn-glyph '+g.font+'" style="color:'+color+'">'+g.char+'</span>';
+            }
+            return '<span class="sbahn-dir">'+dirLabel+'</span><span class="sbahn-glyph dbag-one" style="color:'+color+'">'+esc(lineName)+'</span>';
         }
         function isNorthbound(dir) {
             if (!dir) return false;
@@ -424,8 +435,11 @@
             if (!upcoming.length) { el.innerHTML='<div class="no-data">Keine Abfahrten</div>'; return; }
 
             el.innerHTML = upcoming.map((d,i) => {
-                const line = d.line?.name||'?';
-                const dir = esc(d.direction||'');
+                const line = d.line?.name||'';
+                const dir = d.direction||'';
+                const platform = d.platform||d.plannedPlatform||'';
+                // Skip entries with missing essential info
+                if (!line||!dir||!d.plannedWhen||!platform) return '';
                 const plannedTime = fmtTimeShort(d.plannedWhen);
                 const isCx = !!d.cancelled;
                 const dm = delayMin(d.delay);
@@ -435,16 +449,14 @@
                 if (isCx) badge = '<span class="cancelled-badge">Fällt aus</span>';
                 else if (dm>0 && actualTime) badge = '<span class="delay-badge">'+actualTime+'</span>';
 
-                const platform = d.platform||d.plannedPlatform||'';
-
                 return '<div class="dep-entry'+(isCx?' cancelled':'')+'" data-idx="'+i+'">'+
                     '<div class="dep-sm">'+
-                        '<div class="col-l">'+sbahnIcon(line)+'<span style="margin-left:4px">'+esc(line)+'</span></div>'+
+                        '<div class="col-l">'+sbahnIcon(line,platform)+'</div>'+
                         '<div class="col-m"></div>'+
                     '</div>'+
                     '<div class="dep-lg">'+
                         '<div class="col-l">'+plannedTime+' '+badge+'</div>'+
-                        '<div class="col-m">'+dir+'</div>'+
+                        '<div class="col-m">'+esc(dir)+'</div>'+
                         '<div class="col-r">'+esc(platform)+'</div>'+
                     '</div>'+
                 '</div><hr class="sep">';
@@ -467,6 +479,7 @@
         function showDepDetail(idx) {
             const d = depData[idx]; if (!d) return;
             const line = d.line?.name||'?';
+            const platform = d.platform||d.plannedPlatform||'';
             const dm = delayMin(d.delay);
             const isCx = !!d.cancelled;
             let remarksHtml = (d.remarks||[]).filter(r=>r.text).map(r =>
@@ -474,7 +487,7 @@
             ).join('');
 
             document.getElementById('dep-modal-body').innerHTML =
-                '<div class="detail-row"><div class="detail-label">Linie</div><div class="detail-value" style="font-size:24px">'+sbahnIcon(line)+' '+esc(line)+'</div></div>'+
+                '<div class="detail-row"><div class="detail-label">Linie</div><div class="detail-value" style="font-size:24px">'+sbahnIcon(line,platform)+' '+esc(line)+'</div></div>'+
                 '<div class="detail-row"><div class="detail-label">Richtung</div><div class="detail-value">'+esc(d.direction||'—')+'</div></div>'+
                 '<div class="detail-row"><div class="detail-label">Gleis</div><div class="detail-value">'+esc(d.platform||d.plannedPlatform||'—')+'</div></div>'+
                 '<div class="detail-row"><div class="detail-label">Planmäßig</div><div class="detail-value">'+fmtTime(d.plannedWhen)+'</div></div>'+
