@@ -293,12 +293,9 @@
     (function() {
         'use strict';
 
-        // dbf.finalrewind.org — DB IRIS with CORS support
-        const DBF = 'https://dbf.finalrewind.org';
-        const STATION_ID = '8089030';
-        // BVG REST for buses (CORS supported)
-        const BVG = 'https://v6.bvg.transport.rest';
-        const BUS_STOP = '900191511';
+        const API = 'https://v6.bvg.transport.rest';
+        const SBAHN_ID = '900191002';
+        const BUS_ID = '900191511';
         const REFRESH_MS = 30000;
         const MAX_DEPS = 6;
 
@@ -318,6 +315,19 @@
         function berlinNow() {
             return new Date(new Date().toLocaleString('en-US',{timeZone:'Europe/Berlin'}));
         }
+        function fmtTime(iso) {
+            if (!iso) return '--:--';
+            const d = new Date(iso);
+            return d.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit',timeZone:'Europe/Berlin'});
+        }
+        function fmtTimeShort(iso) {
+            if (!iso) return '--:--';
+            const d = new Date(iso);
+            const h = parseInt(d.toLocaleString('en-US',{hour:'numeric',hour12:false,timeZone:'Europe/Berlin'}));
+            const m = String(d.toLocaleString('en-US',{minute:'2-digit',timeZone:'Europe/Berlin'})).padStart(2,'0');
+            return h+':'+m;
+        }
+        function delayMin(s) { return s ? Math.round(s/60) : 0; }
         function esc(s) {
             const d = document.createElement('div');
             d.textContent = s;
@@ -334,25 +344,6 @@
             const l = dir.toLowerCase();
             return !SOUTHBOUND.some(p => l.includes(p));
         }
-        function addMin(timeStr, mins) {
-            if (!timeStr||!mins) return timeStr;
-            const p = timeStr.split(':');
-            const d = new Date(2000,0,1,parseInt(p[0]),parseInt(p[1]));
-            d.setMinutes(d.getMinutes()+mins);
-            return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');
-        }
-        function fmtIso(iso) {
-            if (!iso) return '--:--';
-            const d = new Date(iso);
-            return d.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit',timeZone:'Europe/Berlin'});
-        }
-        function fmtIsoShort(iso) {
-            if (!iso) return '--:--';
-            const d = new Date(iso);
-            const h = parseInt(d.toLocaleString('en-US',{hour:'numeric',hour12:false,timeZone:'Europe/Berlin'}));
-            const m = String(d.toLocaleString('en-US',{minute:'2-digit',timeZone:'Europe/Berlin'})).padStart(2,'0');
-            return h+':'+m;
-        }
 
         // --- Clock ---
         function tick() {
@@ -365,54 +356,29 @@
         }
         tick(); setInterval(tick,1000);
 
-        // --- S-Bahn API (dbf.finalrewind.org, CORS ✓) ---
+        // --- BVG REST API (CORS ✓) ---
         async function fetchSBahn() {
-            const r = await fetch(DBF+'/'+STATION_ID+'.json?version=3&limit=20');
-            if (!r.ok) throw new Error(r.status);
-            const data = await r.json();
-            if (data.error) throw new Error(data.error);
-            return (data.departures||[]).map(dep => {
-                const lineName = (dep.train||'').replace(/^S\s+(?=S)/,'').trim();
-                const delay = dep.delayDeparture||0;
-                const scheduled = dep.scheduledDeparture||'';
-                const real = delay ? addMin(scheduled,delay) : scheduled;
-                const remarks = [];
-                const msgs = dep.messages||{};
-                if (msgs.qos) msgs.qos.forEach(m => { if(m.text) remarks.push({type:'warning',summary:m.text,text:m.text}); });
-                if (msgs.delay) msgs.delay.forEach(m => { if(m.text) remarks.push({type:'warning',summary:m.text,text:m.text}); });
-                return {
-                    line:{name:lineName,fahrtNr:String(dep.trainNumber||'')},
-                    direction:dep.destination||'',
-                    platform:dep.platform||null,
-                    plannedPlatform:dep.scheduledPlatform||null,
-                    scheduledTime:scheduled,
-                    realTime:real,
-                    delay:delay,
-                    cancelled:!!dep.isCancelled,
-                    remarks:remarks,
-                    via:(dep.via||[]).join(' · ')
-                };
+            const p = new URLSearchParams({
+                duration:'120',results:'20',remarks:'true',
+                suburban:'true',bus:'false',tram:'false',
+                subway:'false',express:'false',ferry:'false',regional:'false'
             });
+            const r = await fetch(API+'/stops/'+SBAHN_ID+'/departures?'+p);
+            if (!r.ok) throw new Error(r.status);
+            const d = await r.json();
+            return Array.isArray(d) ? d : (d.departures||[]);
         }
 
-        // --- Bus API (BVG REST, CORS ✓) ---
         async function fetchBus() {
             const p = new URLSearchParams({
-                duration:'60',results:'10',remarks:'true',
+                duration:'120',results:'20',remarks:'true',
                 bus:'true',suburban:'false',tram:'false',
                 subway:'false',express:'false',ferry:'false',regional:'false'
             });
-            const r = await fetch(BVG+'/stops/'+BUS_STOP+'/departures?'+p);
+            const r = await fetch(API+'/stops/'+BUS_ID+'/departures?'+p);
             if (!r.ok) throw new Error(r.status);
             const d = await r.json();
-            return (Array.isArray(d)?d:(d.departures||[])).map(dep => ({
-                line:{name:(dep.line||{}).name||'?'},
-                direction:dep.direction||'',
-                scheduledTime:fmtIsoShort(dep.plannedWhen),
-                realTime:dep.when?fmtIso(dep.when):'',
-                delay:dep.delay?Math.round(dep.delay/60):0,
-                cancelled:!!dep.cancelled
-            }));
+            return Array.isArray(d) ? d : (d.departures||[]);
         }
 
         // --- Disruption extraction ---
@@ -421,13 +387,25 @@
             const out = [];
             for (const dep of deps) {
                 if (dep.cancelled) {
-                    const k = 'c-'+dep.line.name+'-'+dep.direction;
-                    if (!seen.has(k)) { seen.add(k); out.push({type:'cancellation',line:dep.line.name,summary:dep.line.name+' Ri. '+dep.direction+' fällt aus',text:'Zug fällt aus'}); }
+                    const k = 'c-'+(dep.line?.name||'')+'-'+(dep.direction||'');
+                    if (!seen.has(k)) {
+                        seen.add(k);
+                        out.push({type:'cancellation',line:dep.line?.name,
+                            summary:(dep.line?.name||'Zug')+' Ri. '+(dep.direction||'?')+' fällt aus',
+                            text:dep.remarks?.find(r=>r.type==='status')?.text||'Zug fällt aus'});
+                    }
                 }
-                for (const rm of dep.remarks) {
-                    if (rm.type==='warning') {
-                        const k = rm.summary||rm.text;
-                        if (k&&!seen.has(k)) { seen.add(k); out.push(rm); }
+                if (dep.remarks) {
+                    for (const rm of dep.remarks) {
+                        if (rm.type==='warning'||(rm.type==='status'&&dep.cancelled)) {
+                            const k = rm.summary||rm.text||'';
+                            if (k&&!seen.has(k)) {
+                                seen.add(k);
+                                out.push({type:rm.type,line:dep.line?.name,
+                                    summary:rm.summary||(rm.text||'').substring(0,120),
+                                    text:rm.text||rm.summary||''});
+                            }
+                        }
                     }
                 }
             }
@@ -446,22 +424,22 @@
             if (!upcoming.length) { el.innerHTML='<div class="no-data">Keine Abfahrten</div>'; return; }
 
             el.innerHTML = upcoming.map((d,i) => {
-                const line = d.line.name;
-                const dir = esc(d.direction);
-                const plannedTime = d.scheduledTime||'--:--';
-                const isCx = d.cancelled;
-                const dm = d.delay||0;
-                const fahrtNr = d.line.fahrtNr;
+                const line = d.line?.name||'?';
+                const dir = esc(d.direction||'');
+                const plannedTime = fmtTimeShort(d.plannedWhen);
+                const isCx = !!d.cancelled;
+                const dm = delayMin(d.delay);
+                const actualTime = d.when ? fmtTime(d.when) : null;
 
                 let badge = '';
                 if (isCx) badge = '<span class="cancelled-badge">Fällt aus</span>';
-                else if (dm>0) badge = '<span class="delay-badge">'+(d.realTime||'')+'</span>';
+                else if (dm>0 && actualTime) badge = '<span class="delay-badge">'+actualTime+'</span>';
 
                 const platform = d.platform||d.plannedPlatform||'';
 
                 return '<div class="dep-entry'+(isCx?' cancelled':'')+'" data-idx="'+i+'">'+
                     '<div class="dep-sm">'+
-                        '<div class="col-l">'+sbahnIcon(line)+(fahrtNr?' <span style="margin-left:4px">'+esc(line)+' / '+esc(fahrtNr)+'</span>':'')+'</div>'+
+                        '<div class="col-l">'+sbahnIcon(line)+'<span style="margin-left:4px">'+esc(line)+'</span></div>'+
                         '<div class="col-m"></div>'+
                     '</div>'+
                     '<div class="dep-lg">'+
@@ -488,10 +466,10 @@
         // --- Departure detail modal ---
         function showDepDetail(idx) {
             const d = depData[idx]; if (!d) return;
-            const line = d.line.name;
-            const dm = d.delay||0;
-            const isCx = d.cancelled;
-            let remarksHtml = d.remarks.filter(r=>r.text).map(r =>
+            const line = d.line?.name||'?';
+            const dm = delayMin(d.delay);
+            const isCx = !!d.cancelled;
+            let remarksHtml = (d.remarks||[]).filter(r=>r.text).map(r =>
                 '<div style="padding:4px 0;color:'+(r.type==='warning'?'#f0a030':'rgba(255,255,255,0.85)')+'">'+esc(r.text)+'</div>'
             ).join('');
 
@@ -499,9 +477,8 @@
                 '<div class="detail-row"><div class="detail-label">Linie</div><div class="detail-value" style="font-size:24px">'+sbahnIcon(line)+' '+esc(line)+'</div></div>'+
                 '<div class="detail-row"><div class="detail-label">Richtung</div><div class="detail-value">'+esc(d.direction||'—')+'</div></div>'+
                 '<div class="detail-row"><div class="detail-label">Gleis</div><div class="detail-value">'+esc(d.platform||d.plannedPlatform||'—')+'</div></div>'+
-                '<div class="detail-row"><div class="detail-label">Planmäßig</div><div class="detail-value">'+(d.scheduledTime||'—')+'</div></div>'+
-                '<div class="detail-row"><div class="detail-label">Voraussichtlich</div><div class="detail-value" style="color:'+(dm>0?'#FF4444':'#66dd88')+'">'+(d.realTime||d.scheduledTime||'—')+(dm>0?' (+'+dm+' Min)':' (pünktlich)')+'</div></div>'+
-                (d.via?'<div class="detail-row"><div class="detail-label">Über</div><div class="detail-value">'+esc(d.via)+'</div></div>':'')+
+                '<div class="detail-row"><div class="detail-label">Planmäßig</div><div class="detail-value">'+fmtTime(d.plannedWhen)+'</div></div>'+
+                '<div class="detail-row"><div class="detail-label">Voraussichtlich</div><div class="detail-value" style="color:'+(dm>0?'#FF4444':'#66dd88')+'">'+fmtTime(d.when||d.plannedWhen)+(dm>0?' (+'+dm+' Min)':' (pünktlich)')+'</div></div>'+
                 (isCx?'<div class="detail-row"><div class="detail-label">Status</div><div class="detail-value" style="color:#cc0000">FÄLLT AUS</div></div>':'')+
                 (remarksHtml?'<div class="detail-row" style="flex-direction:column"><div class="detail-label" style="margin-bottom:6px">Hinweise</div><div class="detail-value">'+remarksHtml+'</div></div>':'');
             openModal('dep-modal');
@@ -531,10 +508,12 @@
                 const up = nb.slice(0,4);
                 if (!up.length) { body.innerHTML='<div class="no-data">Keine Busse Richtung Nord</div>'; return; }
                 body.innerHTML = up.map(d => {
-                    const dm = d.delay||0;
+                    const dm = delayMin(d.delay);
+                    const plannedTime = fmtTimeShort(d.plannedWhen);
+                    const actualTime = d.when ? fmtTime(d.when) : null;
                     let badge = '';
-                    if (dm>0) badge = '<span class="delay-badge" style="font-size:15px;top:-2px">'+(d.realTime||'')+'</span>';
-                    return '<div class="bus-entry"><div class="bus-sm">Bus '+esc(d.line.name)+'</div><div class="bus-lg"><div class="bl">'+(d.scheduledTime||'--:--')+' '+badge+'</div><div class="bm">'+esc(d.direction)+'</div></div></div>';
+                    if (dm>0 && actualTime) badge = '<span class="delay-badge" style="font-size:15px;top:-2px">'+actualTime+'</span>';
+                    return '<div class="bus-entry"><div class="bus-sm">Bus '+esc(d.line?.name||'?')+'</div><div class="bus-lg"><div class="bl">'+plannedTime+' '+badge+'</div><div class="bm">'+esc(d.direction||'')+'</div></div></div>';
                 }).join('');
             } catch(e) {
                 body.innerHTML='<div class="no-data" style="color:rgba(255,255,255,0.5)">Busdaten derzeit nicht verfügbar</div>';
