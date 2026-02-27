@@ -107,7 +107,7 @@
         }
 
         /* S-Bahn line icon */
-        .sbahn-glyph { font-size:52px; line-height:1; vertical-align:middle; }
+        .sbahn-glyph { font-size:32px; line-height:1; vertical-align:middle; }
         .sbahn-glyph.dbag-one { font-family:'DBAG One'; }
         .sbahn-glyph.dbag-four { font-family:'DBAG Four'; }
         .sbahn-dir { font-size:17px; color:rgba(255,255,255,0.75); margin-right:6px; }
@@ -335,6 +335,13 @@
             d.textContent = s;
             return d.innerHTML;
         }
+        function sanitizeHtml(s) {
+            if (!s) return '';
+            return s.replace(/<a\s+href="(https?:\/\/[^"]+)"[^>]*>(.*?)<\/a>/gi,
+                function(_,url,text) { return '<a href="'+esc(url)+'" target="_blank" rel="noopener" style="color:#6cb4ee;text-decoration:underline">'+esc(text)+'</a>'; })
+                .replace(/<br\s*\/?>/gi,'<br>')
+                .replace(/<(?!\/?a[ >]|\/?br>)[^>]*>/gi,'');
+        }
         function lineColor(name) { return LINE_COLORS[name] || '#999'; }
         const LINE_GLYPHS = {
             S8:  {char:'H', font:'dbag-one'},
@@ -483,7 +490,7 @@
             const dm = delayMin(d.delay);
             const isCx = !!d.cancelled;
             let remarksHtml = (d.remarks||[]).filter(r=>r.text).map(r =>
-                '<div style="padding:4px 0;color:'+(r.type==='warning'?'#f0a030':'rgba(255,255,255,0.85)')+'">'+esc(r.text)+'</div>'
+                '<div style="padding:4px 0;color:'+(r.type==='warning'?'#f0a030':'rgba(255,255,255,0.85)')+'">'+sanitizeHtml(r.text)+'</div>'
             ).join('');
 
             document.getElementById('dep-modal-body').innerHTML =
@@ -504,7 +511,7 @@
                 body.innerHTML='<div style="text-align:center;color:#66dd88;padding:24px;font-size:22px">Keine aktuellen Störungen</div>';
             } else {
                 body.innerHTML = disruptData.map(d =>
-                    '<div class="disruption-item"><div class="disruption-item-title">'+(d.line?'<span style="margin-right:6px">'+esc(d.line)+'</span>':'')+esc(d.summary)+'</div><div class="disruption-item-text">'+esc(d.text)+'</div></div>'
+                    '<div class="disruption-item"><div class="disruption-item-title">'+(d.line?'<span style="margin-right:6px">'+esc(d.line)+'</span>':'')+esc(d.summary)+'</div><div class="disruption-item-text">'+sanitizeHtml(d.text)+'</div></div>'
                 ).join('');
             }
             openModal('dis-modal');
