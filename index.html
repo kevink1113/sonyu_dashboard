@@ -94,7 +94,7 @@
             display:flex; font-size:17px;
             color:rgba(255,255,255,0.75); margin-bottom:1px;
         }
-        .dep-sm .col-l { min-width:var(--col-left); display:flex; align-items:center; gap:6px; }
+        .dep-sm .col-l { min-width:var(--col-left); display:flex; align-items:center; gap:4px; }
         .dep-sm .col-m { flex:1; }
         .dep-lg { display:flex; align-items:baseline; }
         .dep-lg .col-l {
@@ -107,10 +107,11 @@
         }
 
         /* S-Bahn line icon */
-        .sbahn-glyph { font-size:28px; line-height:1; vertical-align:baseline; position:relative; top:-2px; }
+        .sbahn-glyph { font-size:28px; line-height:1; display:inline-flex; align-items:center; }
         .sbahn-glyph.dbag-one { font-family:'DBAG One'; }
         .sbahn-glyph.dbag-four { font-family:'DBAG Four'; }
-        .sbahn-dir { font-size:17px; color:rgba(255,255,255,0.75); margin-right:6px; }
+        .sbahn-dir { font-size:17px; color:rgba(255,255,255,0.75); margin-right:4px; display:inline-flex; align-items:center; }
+        .sbahn-wrap { display:inline-flex; align-items:center; }
 
         .delay-badge {
             display:inline-block; background:var(--white);
@@ -351,11 +352,11 @@
         function sbahnIcon(lineName, platform) {
             const color = lineColor(lineName);
             const g = LINE_GLYPHS[lineName];
-            const dirLabel = platform==='3'?'Südliche ':'Nördliche ';
-            if (g) {
-                return '<span class="sbahn-dir">'+dirLabel+'</span><span class="sbahn-glyph '+g.font+'" style="color:'+color+'">'+g.char+'</span>';
-            }
-            return '<span class="sbahn-dir">'+dirLabel+'</span><span class="sbahn-glyph dbag-one" style="color:'+color+'">'+esc(lineName)+'</span>';
+            const dirLabel = platform==='3'?'Südliche':'Nördliche';
+            const glyph = g
+                ? '<span class="sbahn-glyph '+g.font+'" style="color:'+color+'">'+g.char+'</span>'
+                : '<span class="sbahn-glyph dbag-one" style="color:'+color+'">'+esc(lineName)+'</span>';
+            return '<span class="sbahn-wrap"><span class="sbahn-dir">'+dirLabel+'</span>'+glyph+'</span>';
         }
         function isNorthbound(dir) {
             if (!dir) return false;
@@ -469,6 +470,19 @@
                 '</div><hr class="sep">';
             }).join('');
 
+            // Hide entries that overflow the container
+            requestAnimationFrame(() => {
+                const sectionBottom = el.getBoundingClientRect().bottom;
+                el.querySelectorAll('.dep-entry').forEach(row => {
+                    const sep = row.nextElementSibling;
+                    const entryBottom = (sep||row).getBoundingClientRect().bottom;
+                    if (entryBottom > sectionBottom + 2) {
+                        row.style.display = 'none';
+                        if (sep) sep.style.display = 'none';
+                    }
+                });
+            });
+
             el.querySelectorAll('.dep-entry').forEach(row => {
                 row.addEventListener('click',()=>showDepDetail(+row.dataset.idx));
             });
@@ -494,7 +508,7 @@
             ).join('');
 
             document.getElementById('dep-modal-body').innerHTML =
-                '<div class="detail-row"><div class="detail-label">Linie</div><div class="detail-value" style="font-size:24px">'+sbahnIcon(line,platform)+' '+esc(line)+'</div></div>'+
+                '<div class="detail-row"><div class="detail-label">Linie</div><div class="detail-value" style="display:flex;align-items:center">'+sbahnIcon(line,platform)+'</div></div>'+
                 '<div class="detail-row"><div class="detail-label">Richtung</div><div class="detail-value">'+esc(d.direction||'—')+'</div></div>'+
                 '<div class="detail-row"><div class="detail-label">Gleis</div><div class="detail-value">'+esc(d.platform||d.plannedPlatform||'—')+'</div></div>'+
                 '<div class="detail-row"><div class="detail-label">Planmäßig</div><div class="detail-value">'+fmtTime(d.plannedWhen)+'</div></div>'+
