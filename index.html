@@ -372,7 +372,7 @@
             const data = await r.json();
             if (data.error) throw new Error(data.error);
             return (data.departures||[]).map(dep => {
-                const lineName = (dep.train||'').replace(/^S\s+/,'S').trim();
+                const lineName = (dep.train||'').replace(/^S\s+(?=S)/,'').trim();
                 const delay = dep.delayDeparture||0;
                 const scheduled = dep.scheduledDeparture||'';
                 const real = delay ? addMin(scheduled,delay) : scheduled;
