@@ -161,13 +161,15 @@
             display:flex; align-items:stretch;
             padding:0 var(--pad); gap:6px;
             border-bottom:1px solid var(--sep);
+            overflow-x:auto; scrollbar-width:none;
         }
+        .tab-bar::-webkit-scrollbar { display:none; }
         .tab {
             padding:9px 20px; font-size:19px;
             color:rgba(255,255,255,0.5); cursor:pointer;
             border-bottom:3px solid transparent;
             transition:color .15s, border-color .15s;
-            user-select:none; white-space:nowrap;
+            user-select:none; white-space:nowrap; flex-shrink:0;
         }
         .tab.active { color:var(--white); border-bottom-color:var(--white); }
         .tab:active { color:var(--white); }
@@ -291,6 +293,9 @@
     </div>
     <hr class="sep">
 
+    <!-- Train Type Tabs (shown only when a station has more than two types) -->
+    <div class="tab-bar" id="type-tabs" style="display:none"></div>
+
     <!-- Track Tabs -->
     <div class="tab-bar" id="track-tabs">
         <div class="tab active" data-track="all">Alle</div>
@@ -412,12 +417,27 @@
             U1:'#7DAD4C',U2:'#DA421E',U3:'#16683D',U4:'#F0D722',U5:'#7E5330',
             U6:'#8C6DAB',U7:'#528DBA',U8:'#224F86',U9:'#F3791D'
         };
+        // Badge colors per train type (for lines without a dedicated color)
+        const TYPE_COLORS = {
+            ice:'#5B6670', ic:'#5B6670', re:'#EC0016', rb:'#0087C1', tram:'#BE1414'
+        };
+        // Train-type filter options (Bus lives in its own modal)
+        const TRAIN_TYPES = [
+            {key:'ice',   label:'ICE'},
+            {key:'ic',    label:'IC'},
+            {key:'re',    label:'RE'},
+            {key:'rb',    label:'RB'},
+            {key:'sbahn', label:'S-Bahn'},
+            {key:'ubahn', label:'U-Bahn'},
+            {key:'tram',  label:'Tram'}
+        ];
         const SOUTHBOUND = ['schöneweide','köpenick','müggelschlößchenweg','grünau','adlershof','rudow','bohnsdorf'];
 
         let depData = [];        // currently rendered departures (index target for detail modal)
         let rawSbahn = [];       // full fetched S-Bahn departures
         let disruptData = [];
-        let selectedTrack = 'all'; // 'all' | '3' | '4'
+        let selectedTrack = 'all'; // 'all' | platform id
+        let selectedType = 'all';  // 'all' | ice | ic | re | rb | sbahn | ubahn | tram
         let expanded = false;      // swiped-up view showing later trains
         let busDeps = [];          // last fetched bus departures
         let busDir = 'nord';       // 'nord' | 'sued'
@@ -451,14 +471,39 @@
                 .replace(/<br\s*\/?>/gi,'<br>')
                 .replace(/<(?!\/?a[ >]|\/?br>)[^>]*>/gi,'');
         }
-        function lineColor(name) { return LINE_COLORS[name] || UBAHN_COLORS[name] || '#999'; }
+        function lineColor(name, type) {
+            return LINE_COLORS[name] || UBAHN_COLORS[name] || (type && TYPE_COLORS[type]) || '#999';
+        }
+        // Classify a departure into a train type. Uses product first (bare-number
+        // lines exist in both express=IC and tram), then line name for ICE/IC/RE/RB.
+        function trainType(d) {
+            const line = d.line || {};
+            const product = line.product || '';
+            const name = (line.name || '').toUpperCase().trim();
+            if (product==='suburban') return 'sbahn';
+            if (product==='subway')   return 'ubahn';
+            if (product==='tram')     return 'tram';
+            if (product==='bus')      return 'bus';
+            if (product==='express' || product==='national' || product==='nationalExpress') {
+                return /^ICE/.test(name) ? 'ice' : 'ic';
+            }
+            if (product==='regional' || product==='regionalExpress') {
+                return /^RB/.test(name) ? 'rb' : 're';
+            }
+            // Fallback by name when product is missing/unknown
+            if (/^ICE/.test(name)) return 'ice';
+            if (/^(IC|EC|RJ)/.test(name)) return 'ic';
+            if (/^RB/.test(name)) return 'rb';
+            if (/^RE/.test(name)) return 're';
+            return 'other';
+        }
         const LINE_GLYPHS = {
             S8:  {char:'H', font:'dbag-one'},
             S9:  {char:'I', font:'dbag-one'},
             S85: {char:'k', font:'dbag-four'}
         };
-        function sbahnIcon(lineName, platform) {
-            const color = lineColor(lineName);
+        function sbahnIcon(lineName, platform, type) {
+            const color = lineColor(lineName, type);
             const g = LINE_GLYPHS[lineName];
             const glyph = g
                 ? '<span class="sbahn-glyph '+g.font+'" style="color:'+color+'">'+g.char+'</span>'
@@ -489,12 +534,13 @@
 
         // --- BVG REST API (CORS ✓) ---
         async function fetchSBahn() {
-            // Default station: S-Bahn only. Other stations also show U-Bahn + regional.
+            // Default station: S-Bahn only. Other stations also show ICE/IC/RE/RB, U-Bahn, Tram.
             const wide = !currentStation.isDefault;
             const p = new URLSearchParams({
                 duration:'180',results:'40',remarks:'true',
-                suburban:'true', bus:'false', tram:'false', ferry:'false',
+                suburban:'true', bus:'false', ferry:'false',
                 subway: wide?'true':'false',
+                tram: wide?'true':'false',
                 regional: wide?'true':'false',
                 express: wide?'true':'false'
             });
@@ -554,7 +600,44 @@
                 // Default station only monitors Gleis 3 & 4
                 if (currentStation.isDefault && platform!=='3' && platform!=='4') return false;
                 if (selectedTrack!=='all' && platform!==selectedTrack) return false;
+                if (selectedType!=='all' && trainType(d)!==selectedType) return false;
                 return true;
+            });
+        }
+
+        // --- Train-type filter (shown only when a station has >2 types) ---
+        function presentTypes() {
+            const set = new Set();
+            rawSbahn.forEach(d => {
+                const t = trainType(d);
+                if (t!=='bus' && t!=='other') set.add(t);
+            });
+            return set;
+        }
+        function renderTypeTabs() {
+            const bar = document.getElementById('type-tabs');
+            const present = presentTypes();
+            if (present.size <= 2) {
+                bar.style.display = 'none';
+                bar.innerHTML = '';
+                selectedType = 'all';
+                return;
+            }
+            bar.style.display = 'flex';
+            const opts = [{key:'all',label:'Alle'}]
+                .concat(TRAIN_TYPES.filter(t => present.has(t.key)));
+            if (!opts.some(o => o.key===selectedType)) selectedType = 'all';
+            bar.innerHTML = '';
+            opts.forEach(o => {
+                const t = document.createElement('div');
+                t.className = 'tab'+(o.key===selectedType?' active':'');
+                t.textContent = o.label;
+                t.addEventListener('click', () => {
+                    selectedType = o.key;
+                    bar.querySelectorAll('.tab').forEach(x => x.classList.toggle('active', x===t));
+                    renderDeps();
+                });
+                bar.appendChild(t);
             });
         }
 
@@ -599,6 +682,7 @@
         // --- Render departures ---
         function renderDeps() {
             const el = document.getElementById('departures');
+            renderTypeTabs();
             renderTrackTabs();
             const sbahn = filteredSbahn();
             const upcoming = expanded ? sbahn : sbahn.slice(0, MAX_DEPS);
@@ -614,6 +698,7 @@
                 const line = d.line?.name||'';
                 const dir = d.direction||'';
                 const platform = d.platform||d.plannedPlatform||'';
+                const type = trainType(d);
                 // Skip entries with missing essential info
                 if (!line||!dir||!d.plannedWhen) return '';
                 const plannedTime = fmtTimeShort(d.plannedWhen);
@@ -627,7 +712,7 @@
 
                 return '<div class="dep-entry'+(isCx?' cancelled':'')+'" data-idx="'+i+'">'+
                     '<div class="dep-sm">'+
-                        '<div class="col-l">'+sbahnIcon(line,platform)+'</div>'+
+                        '<div class="col-l">'+sbahnIcon(line,platform,type)+'</div>'+
                         '<div class="col-m"></div>'+
                     '</div>'+
                     '<div class="dep-lg">'+
@@ -691,6 +776,7 @@
             const d = depData[idx]; if (!d) return;
             const line = d.line?.name||'?';
             const platform = d.platform||d.plannedPlatform||'';
+            const type = trainType(d);
             const dm = delayMin(d.delay);
             const isCx = !!d.cancelled;
             let remarksHtml = (d.remarks||[]).filter(r=>r.text).map(r =>
@@ -698,7 +784,7 @@
             ).join('');
 
             document.getElementById('dep-modal-body').innerHTML =
-                '<div class="detail-row"><div class="detail-label">Linie</div><div class="detail-value" style="display:flex;align-items:center">'+sbahnIcon(line,platform)+'</div></div>'+
+                '<div class="detail-row"><div class="detail-label">Linie</div><div class="detail-value" style="display:flex;align-items:center">'+sbahnIcon(line,platform,type)+'</div></div>'+
                 '<div class="detail-row"><div class="detail-label">Richtung</div><div class="detail-value">'+esc(d.direction||'—')+'</div></div>'+
                 '<div class="detail-row"><div class="detail-label">Gleis</div><div class="detail-value">'+esc(d.platform||d.plannedPlatform||'—')+'</div></div>'+
                 '<div class="detail-row"><div class="detail-label">Planmäßig</div><div class="detail-value">'+fmtTime(d.plannedWhen)+'</div></div>'+
@@ -806,6 +892,7 @@
                 : { id, name, busId:id, busName:name, isDefault:false };
             document.getElementById('station-name').innerHTML = stationLabel(currentStation.name);
             selectedTrack = 'all';
+            selectedType = 'all';
             setExpanded(false);
             closeModal('station-modal');
             document.getElementById('departures').innerHTML =
