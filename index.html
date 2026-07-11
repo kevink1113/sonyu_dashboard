@@ -189,12 +189,12 @@
         }
         .tab.active { color:var(--white); border-bottom-color:var(--white); }
         .tab:active { color:var(--white); }
-        .home-btn {
+        .home-btn, .pause-btn {
             align-self:center; background:rgba(255,255,255,0.10); border:none;
             color:var(--white); cursor:pointer; padding:6px 12px;
             display:flex; align-items:center; transition:background .15s;
         }
-        .home-btn:active { background:rgba(255,255,255,0.28); }
+        .home-btn:active, .pause-btn:active { background:rgba(255,255,255,0.28); }
         .back-btn {
             position:relative; overflow:hidden; align-self:center;
             background:rgba(255,255,255,0.10); border:none;
@@ -203,13 +203,11 @@
             display:flex; align-items:center; gap:8px;
         }
         .back-btn:active { background:rgba(255,255,255,0.28); }
-        /* Subtle 1-minute progress fill inside the back button */
+        /* Subtle 1-minute progress fill inside the back button (width driven by JS) */
         .back-fill {
             position:absolute; left:0; top:0; height:100%; width:0;
             background:rgba(255,255,255,0.16); z-index:0;
         }
-        .back-fill.running { animation:backfill 60s linear forwards; }
-        @keyframes backfill { from{width:0} to{width:100%} }
         .back-text { position:relative; z-index:1; }
         .modal .tab-bar { margin:0; padding:0 26px; }
 
@@ -340,6 +338,7 @@
                     <path d="M3 11.5 12 4l9 7.5"/><path d="M5 10v9h14v-9"/><path d="M9.5 19v-5h5v5"/>
                 </svg>
             </button>
+            <button class="pause-btn" id="pause-btn" style="display:none" aria-label="Pausieren"></button>
             <button class="back-btn" id="dep-back" style="display:none">
                 <span class="back-fill" id="back-fill"></span>
                 <span class="back-text">Zurückbleiben Bitte!</span>
@@ -700,8 +699,9 @@
 
         // --- Show/hide the pinned right-side actions (mutually exclusive) ---
         function updateFilterActions() {
-            // Back button only in the expanded view; home icon otherwise (non-default only)
+            // Pause + back button in the expanded view; home icon otherwise (non-default only)
             document.getElementById('dep-back').style.display = expanded ? 'flex' : 'none';
+            document.getElementById('pause-btn').style.display = expanded ? 'flex' : 'none';
             document.getElementById('home-btn').style.display =
                 (!expanded && !currentStation.isDefault) ? 'flex' : 'none';
         }
@@ -801,19 +801,56 @@
             const hint = document.getElementById('more-hint');
             hint.classList.toggle('visible', !expanded && hidden>0);
         }
-        // 1-minute auto-collapse timer, visualized by the back-button progress fill
-        let backTimer = null;
+        // 1-minute auto-collapse timer (rAF-driven), shown as the back-button fill.
+        // Any interaction resets it to 0; the pause button freezes it.
+        const BACK_DURATION = 60000;
+        const ICON_PAUSE = '<svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>';
+        const ICON_PLAY  = '<svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M7 4l13 8-13 8z"/></svg>';
+        let backRaf = null, backElapsed = 0, backLastTs = 0, backPaused = false;
+
+        function backFrame(ts) {
+            backRaf = null;
+            if (!expanded || backPaused) return;
+            if (backLastTs) backElapsed += ts - backLastTs;
+            backLastTs = ts;
+            const p = Math.min(1, backElapsed / BACK_DURATION);
+            document.getElementById('back-fill').style.width = (p*100)+'%';
+            if (p >= 1) { setExpanded(false); return; }
+            backRaf = requestAnimationFrame(backFrame);
+        }
+        function runBack() {
+            if (backRaf || backPaused || !expanded) return;
+            backLastTs = 0; // avoid counting the gap since the last frame
+            backRaf = requestAnimationFrame(backFrame);
+        }
         function startBackTimer() {
-            stopBackTimer();
-            const fill = document.getElementById('back-fill');
-            fill.classList.remove('running');
-            void fill.offsetWidth; // reflow so the animation restarts from 0
-            fill.classList.add('running');
-            backTimer = setTimeout(() => setExpanded(false), 60000);
+            backElapsed = 0; backPaused = false; backLastTs = 0;
+            document.getElementById('back-fill').style.width = '0%';
+            updatePauseBtn();
+            runBack();
         }
         function stopBackTimer() {
-            if (backTimer) { clearTimeout(backTimer); backTimer = null; }
-            document.getElementById('back-fill').classList.remove('running');
+            if (backRaf) { cancelAnimationFrame(backRaf); backRaf = null; }
+            backPaused = false; backElapsed = 0;
+            document.getElementById('back-fill').style.width = '0%';
+        }
+        function resetBackTimer() {
+            if (!expanded) return;
+            backElapsed = 0; backLastTs = 0;
+            document.getElementById('back-fill').style.width = '0%';
+            runBack(); // resumes counting unless paused
+        }
+        function togglePause() {
+            if (!expanded) return;
+            backPaused = !backPaused;
+            updatePauseBtn();
+            if (backPaused) { if (backRaf) { cancelAnimationFrame(backRaf); backRaf = null; } }
+            else runBack();
+        }
+        function updatePauseBtn() {
+            const btn = document.getElementById('pause-btn');
+            btn.innerHTML = backPaused ? ICON_PLAY : ICON_PAUSE;
+            btn.setAttribute('aria-label', backPaused ? 'Fortsetzen' : 'Pausieren');
         }
         function setExpanded(v) {
             if (expanded===v) return;
@@ -1046,6 +1083,13 @@
         // --- Filter tabs are (re)built by renderFilterTabs(); back button collapses ---
         document.getElementById('dep-back').addEventListener('click',()=>setExpanded(false));
         document.getElementById('home-btn').addEventListener('click',()=>location.reload());
+        document.getElementById('pause-btn').addEventListener('click',togglePause);
+
+        // Any interaction in the expanded view resets the auto-collapse timer to 0
+        const depSection = document.getElementById('departures');
+        depSection.addEventListener('scroll',resetBackTimer,{passive:true});
+        depSection.addEventListener('pointerdown',resetBackTimer,{passive:true});
+        document.getElementById('filter-tabs').addEventListener('pointerdown',resetBackTimer,{passive:true});
 
         // --- Bus direction tabs ---
         document.querySelectorAll('#bus-tabs .tab').forEach(tab => {
