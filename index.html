@@ -233,7 +233,15 @@
             padding:18px 26px; background:var(--bg-dark);
             border-bottom:1px solid var(--sep);
         }
-        .modal-title { font-size:26px; }
+        .modal-title { font-size:26px; flex:1; }
+        .translate-btn {
+            background:rgba(255,255,255,0.14); border:none;
+            color:var(--white); font-family:inherit;
+            font-size:17px; padding:9px 16px; cursor:pointer;
+            margin-right:10px; flex-shrink:0;
+        }
+        .translate-btn:active { background:rgba(255,255,255,0.28); }
+        .translate-btn:disabled { opacity:0.55; }
         .modal-close {
             width:42px; height:42px;
             background:rgba(255,255,255,0.12); border:none;
@@ -344,6 +352,7 @@
         <div class="modal">
             <div class="modal-header">
                 <div class="modal-title">Aktuelle Störungen</div>
+                <button class="translate-btn" id="dis-translate">English</button>
                 <button class="modal-close" id="dis-modal-close">✕</button>
             </div>
             <div class="modal-body" id="dis-modal-body"></div>
@@ -434,6 +443,8 @@
         let expanded = false;      // swiped-up view showing later trains
         let busDeps = [];          // last fetched bus departures
         let busDir = 'nord';       // 'nord' | 'sued'
+        let disruptLang = 'de';    // 'de' | 'en' — disruption modal language
+        const translationCache = new Map();
 
         // --- Helpers ---
         function berlinNow() {
@@ -753,6 +764,7 @@
         // --- Render disruptions ---
         function renderDisruptions(list) {
             disruptData = list;
+            disruptLang = 'de'; // fresh data → back to German (cache keeps re-translation instant)
             const el = document.getElementById('disrupt-area');
             if (!list.length) { el.textContent='Keine aktuellen Störungen'; el.className='disrupt-area'; }
             else { el.textContent=list.map(d=>d.summary).join(' · '); el.className='disrupt-area warn'; }
@@ -781,16 +793,66 @@
             openModal('dep-modal');
         }
 
-        // --- Disruption detail modal ---
-        function showDisruptDetail() {
-            const body = document.getElementById('dis-modal-body');
-            if (!disruptData.length) {
-                body.innerHTML='<div style="text-align:center;color:#66dd88;padding:24px;font-size:22px">Keine aktuellen Störungen</div>';
-            } else {
-                body.innerHTML = disruptData.map(d =>
-                    '<div class="disruption-item"><div class="disruption-item-title">'+(d.line?'<span style="margin-right:6px">'+esc(d.line)+'</span>':'')+esc(d.summary)+'</div><div class="disruption-item-text">'+sanitizeHtml(d.text)+'</div></div>'
-                ).join('');
+        // --- Translation (German → English) via Google gtx endpoint ---
+        async function translateText(text) {
+            if (!text || !text.trim()) return text||'';
+            if (translationCache.has(text)) return translationCache.get(text);
+            try {
+                const url = 'https://translate.googleapis.com/translate_a/single?client=gtx&sl=de&tl=en&dt=t&q='+encodeURIComponent(text);
+                const r = await fetch(url);
+                if (!r.ok) throw new Error(r.status);
+                const j = await r.json();
+                const out = (j[0]||[]).map(seg => seg[0]).join('') || text;
+                translationCache.set(text, out);
+                return out;
+            } catch(e) {
+                return text; // fall back to German on failure
             }
+        }
+
+        function updateTranslateBtn() {
+            const btn = document.getElementById('dis-translate');
+            btn.style.display = disruptData.length ? 'flex' : 'none';
+            btn.disabled = false;
+            btn.textContent = disruptLang==='de' ? 'English' : 'Deutsch';
+        }
+
+        // --- Disruption detail modal ---
+        function renderDisruptBody() {
+            const body = document.getElementById('dis-modal-body');
+            const en = disruptLang==='en';
+            if (!disruptData.length) {
+                body.innerHTML='<div style="text-align:center;color:#66dd88;padding:24px;font-size:22px">'+
+                    (en?'No current disruptions':'Keine aktuellen Störungen')+'</div>';
+                return;
+            }
+            body.innerHTML = disruptData.map(d => {
+                const summary = (en && d._enSummary!=null) ? d._enSummary : d.summary;
+                const text = (en && d._enText!=null) ? d._enText : d.text;
+                return '<div class="disruption-item"><div class="disruption-item-title">'+(d.line?'<span style="margin-right:6px">'+esc(d.line)+'</span>':'')+esc(summary)+'</div><div class="disruption-item-text">'+sanitizeHtml(text)+'</div></div>';
+            }).join('');
+        }
+
+        async function toggleDisruptLang() {
+            const btn = document.getElementById('dis-translate');
+            if (disruptLang==='de') {
+                btn.disabled = true;
+                btn.textContent = 'Übersetze…';
+                await Promise.all(disruptData.map(async d => {
+                    if (d._enSummary==null) d._enSummary = await translateText(d.summary);
+                    if (d._enText==null)    d._enText = await translateText(d.text);
+                }));
+                disruptLang = 'en';
+            } else {
+                disruptLang = 'de';
+            }
+            renderDisruptBody();
+            updateTranslateBtn();
+        }
+
+        function showDisruptDetail() {
+            updateTranslateBtn();
+            renderDisruptBody();
             openModal('dis-modal');
         }
 
@@ -840,6 +902,7 @@
         });
         document.getElementById('dep-modal-close').addEventListener('click',()=>closeModal('dep-modal'));
         document.getElementById('dis-modal-close').addEventListener('click',()=>closeModal('dis-modal'));
+        document.getElementById('dis-translate').addEventListener('click',toggleDisruptLang);
         document.getElementById('bus-modal-close').addEventListener('click',()=>closeModal('bus-modal'));
         document.getElementById('station-modal-close').addEventListener('click',()=>closeModal('station-modal'));
 
