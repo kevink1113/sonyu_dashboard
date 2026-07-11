@@ -130,6 +130,43 @@
             color:rgba(255,255,255,0.45); padding:40px var(--pad);
         }
 
+        /* ── Tabs ── */
+        .tab-bar {
+            display:flex; align-items:stretch;
+            padding:0 var(--pad); gap:6px;
+            border-bottom:1px solid var(--sep);
+        }
+        .tab {
+            padding:9px 20px; font-size:19px;
+            color:rgba(255,255,255,0.5); cursor:pointer;
+            border-bottom:3px solid transparent;
+            transition:color .15s, border-color .15s;
+            user-select:none; white-space:nowrap;
+        }
+        .tab.active { color:var(--white); border-bottom-color:var(--white); }
+        .tab:active { color:var(--white); }
+        .back-btn {
+            margin-left:auto; align-self:center;
+            background:rgba(255,255,255,0.14); border:none;
+            color:var(--white); font-family:inherit;
+            font-size:18px; padding:7px 18px; cursor:pointer;
+            display:flex; align-items:center; gap:8px;
+        }
+        .back-btn:active { background:rgba(255,255,255,0.3); }
+        .modal .tab-bar { padding:0 26px; }
+
+        /* Expanded (swiped-up) departure list */
+        .dep-section.expanded { overflow:hidden auto; }
+        .dep-section.expanded .dep-entry { display:block !important; }
+        .dep-section.expanded .dep-entry + .sep { display:block !important; }
+        .more-hint {
+            text-align:center; font-size:15px;
+            color:rgba(255,255,255,0.5);
+            padding:5px 0 3px; display:none;
+        }
+        .more-hint.visible { display:block; }
+        .more-hint:active { color:var(--white); }
+
         /* ── Bottom Bar ── */
         .bottom-bar {
             display:flex; align-items:center;
@@ -228,6 +265,14 @@
     </div>
     <hr class="sep">
 
+    <!-- Track Tabs -->
+    <div class="tab-bar" id="track-tabs">
+        <div class="tab active" data-track="all">Alle</div>
+        <div class="tab" data-track="4">Gleis 4 · Nord</div>
+        <div class="tab" data-track="3">Gleis 3 · Süd</div>
+        <button class="back-btn" id="dep-back" style="display:none">‹ Zurück</button>
+    </div>
+
     <!-- Column Headers -->
     <div class="col-headers">
         <div class="col-hdr-left">
@@ -248,6 +293,9 @@
     <div class="dep-section" id="departures">
         <div class="no-data">Daten werden geladen…</div>
     </div>
+
+    <!-- Swipe-up hint -->
+    <div class="more-hint" id="more-hint">↑ Spätere Abfahrten &nbsp;·&nbsp; nach oben wischen</div>
 
     <!-- Bottom Bar -->
     <div class="bottom-bar">
@@ -281,8 +329,12 @@
     <div class="modal-overlay" id="bus-modal">
         <div class="modal">
             <div class="modal-header">
-                <div class="modal-title">Köpenicker Landstr./Dammweg → Nord</div>
+                <div class="modal-title" id="bus-modal-title">Köpenicker Landstr./Dammweg → Nord</div>
                 <button class="modal-close" id="bus-modal-close">✕</button>
+            </div>
+            <div class="tab-bar" id="bus-tabs">
+                <div class="tab active" data-dir="nord">Nord</div>
+                <div class="tab" data-dir="sued">Süd</div>
             </div>
             <div class="modal-body" id="bus-modal-body">
                 <div class="no-data">Busdaten werden geladen…</div>
@@ -311,8 +363,13 @@
         };
         const SOUTHBOUND = ['schöneweide','köpenick','müggelschlößchenweg','grünau','adlershof','rudow','bohnsdorf'];
 
-        let depData = [];
+        let depData = [];        // currently rendered departures (index target for detail modal)
+        let rawSbahn = [];       // full fetched S-Bahn departures
         let disruptData = [];
+        let selectedTrack = 'all'; // 'all' | '3' | '4'
+        let expanded = false;      // swiped-up view showing later trains
+        let busDeps = [];          // last fetched bus departures
+        let busDir = 'nord';       // 'nord' | 'sued'
 
         // --- Helpers ---
         function berlinNow() {
@@ -378,7 +435,7 @@
         // --- BVG REST API (CORS ✓) ---
         async function fetchSBahn() {
             const p = new URLSearchParams({
-                duration:'120',results:'20',remarks:'true',
+                duration:'180',results:'40',remarks:'true',
                 suburban:'true',bus:'false',tram:'false',
                 subway:'false',express:'false',ferry:'false',regional:'false'
             });
@@ -431,16 +488,28 @@
             return out;
         }
 
+        // --- Filter S-Bahn by selected track ---
+        function filteredSbahn() {
+            return rawSbahn.filter(d => {
+                const platform = d.platform||d.plannedPlatform||'';
+                if (platform!=='3'&&platform!=='4') return false;
+                if (selectedTrack!=='all'&&platform!==selectedTrack) return false;
+                return true;
+            });
+        }
+
         // --- Render departures (Gleis 3 + 4) ---
-        function renderDeps(deps) {
+        function renderDeps() {
             const el = document.getElementById('departures');
-            const sbahn = deps.filter(d =>
-                d.platform==='3'||d.platform==='4'||d.plannedPlatform==='3'||d.plannedPlatform==='4'
-            );
-            const upcoming = sbahn.slice(0, MAX_DEPS);
+            const sbahn = filteredSbahn();
+            const upcoming = expanded ? sbahn : sbahn.slice(0, MAX_DEPS);
             depData = upcoming;
 
-            if (!upcoming.length) { el.innerHTML='<div class="no-data">Keine Abfahrten</div>'; return; }
+            if (!upcoming.length) {
+                el.innerHTML='<div class="no-data">Keine Abfahrten</div>';
+                updateMoreHint(0);
+                return;
+            }
 
             el.innerHTML = upcoming.map((d,i) => {
                 const line = d.line?.name||'';
@@ -470,22 +539,44 @@
                 '</div><hr class="sep">';
             }).join('');
 
-            // Hide entries that overflow the container
-            requestAnimationFrame(() => {
-                const sectionBottom = el.getBoundingClientRect().bottom;
-                el.querySelectorAll('.dep-entry').forEach(row => {
-                    const sep = row.nextElementSibling;
-                    const entryBottom = (sep||row).getBoundingClientRect().bottom;
-                    if (entryBottom > sectionBottom + 2) {
-                        row.style.display = 'none';
-                        if (sep) sep.style.display = 'none';
-                    }
+            // In expanded view show everything (scrollable); otherwise hide overflow.
+            if (expanded) {
+                updateMoreHint(0);
+            } else {
+                requestAnimationFrame(() => {
+                    const sectionBottom = el.getBoundingClientRect().bottom;
+                    let hidden = 0;
+                    el.querySelectorAll('.dep-entry').forEach(row => {
+                        const sep = row.nextElementSibling;
+                        const entryBottom = (sep||row).getBoundingClientRect().bottom;
+                        if (entryBottom > sectionBottom + 2) {
+                            row.style.display = 'none';
+                            if (sep) sep.style.display = 'none';
+                            hidden++;
+                        }
+                    });
+                    updateMoreHint(hidden);
                 });
-            });
+            }
 
             el.querySelectorAll('.dep-entry').forEach(row => {
                 row.addEventListener('click',()=>showDepDetail(+row.dataset.idx));
             });
+        }
+
+        // --- Expand / collapse (swipe-up) view ---
+        function updateMoreHint(hidden) {
+            const hint = document.getElementById('more-hint');
+            hint.classList.toggle('visible', !expanded && hidden>0);
+        }
+        function setExpanded(v) {
+            if (expanded===v) return;
+            expanded = v;
+            const el = document.getElementById('departures');
+            el.classList.toggle('expanded', v);
+            document.getElementById('dep-back').style.display = v ? 'flex' : 'none';
+            if (v) el.scrollTop = 0;
+            renderDeps();
         }
 
         // --- Render disruptions ---
@@ -532,24 +623,38 @@
         }
 
         // --- Bus modal ---
+        function renderBusList() {
+            const body = document.getElementById('bus-modal-body');
+            const nord = busDir==='nord';
+            document.getElementById('bus-modal-title').textContent =
+                'Köpenicker Landstr./Dammweg → '+(nord?'Nord':'Süd');
+            const filtered = busDeps.filter(d =>
+                !d.cancelled && (nord ? isNorthbound(d.direction) : !isNorthbound(d.direction))
+            );
+            const up = filtered.slice(0,6);
+            if (!up.length) {
+                body.innerHTML='<div class="no-data">Keine Busse Richtung '+(nord?'Nord':'Süd')+'</div>';
+                return;
+            }
+            body.innerHTML = up.map(d => {
+                const dm = delayMin(d.delay);
+                const plannedTime = fmtTimeShort(d.plannedWhen);
+                const actualTime = d.when ? fmtTime(d.when) : null;
+                let badge = '';
+                if (dm>0 && actualTime) badge = '<span class="delay-badge" style="font-size:15px;top:-2px">'+actualTime+'</span>';
+                return '<div class="bus-entry"><div class="bus-sm">Bus '+esc(d.line?.name||'?')+'</div><div class="bus-lg"><div class="bl">'+plannedTime+' '+badge+'</div><div class="bm">'+esc(d.direction||'')+'</div></div></div>';
+            }).join('');
+        }
+
         async function showBusModal() {
             openModal('bus-modal');
             const body = document.getElementById('bus-modal-body');
             body.innerHTML='<div class="no-data">Busdaten werden geladen…</div>';
             try {
-                const deps = await fetchBus();
-                const nb = deps.filter(d=>!d.cancelled&&isNorthbound(d.direction));
-                const up = nb.slice(0,4);
-                if (!up.length) { body.innerHTML='<div class="no-data">Keine Busse Richtung Nord</div>'; return; }
-                body.innerHTML = up.map(d => {
-                    const dm = delayMin(d.delay);
-                    const plannedTime = fmtTimeShort(d.plannedWhen);
-                    const actualTime = d.when ? fmtTime(d.when) : null;
-                    let badge = '';
-                    if (dm>0 && actualTime) badge = '<span class="delay-badge" style="font-size:15px;top:-2px">'+actualTime+'</span>';
-                    return '<div class="bus-entry"><div class="bus-sm">Bus '+esc(d.line?.name||'?')+'</div><div class="bus-lg"><div class="bl">'+plannedTime+' '+badge+'</div><div class="bm">'+esc(d.direction||'')+'</div></div></div>';
-                }).join('');
+                busDeps = await fetchBus();
+                renderBusList();
             } catch(e) {
+                busDeps = [];
                 body.innerHTML='<div class="no-data" style="color:rgba(255,255,255,0.5)">Busdaten derzeit nicht verfügbar</div>';
             }
         }
@@ -568,12 +673,55 @@
         document.getElementById('disrupt-area').addEventListener('click',showDisruptDetail);
         document.getElementById('bus-btn').addEventListener('click',showBusModal);
 
+        // --- Tab helper ---
+        function activateTab(tab) {
+            const siblings = tab.parentElement.querySelectorAll('.tab');
+            siblings.forEach(t => t.classList.toggle('active', t===tab));
+        }
+
+        // --- Track tabs ---
+        document.querySelectorAll('#track-tabs .tab').forEach(tab => {
+            tab.addEventListener('click',()=>{
+                selectedTrack = tab.dataset.track;
+                activateTab(tab);
+                renderDeps();
+            });
+        });
+        document.getElementById('dep-back').addEventListener('click',()=>setExpanded(false));
+
+        // --- Bus direction tabs ---
+        document.querySelectorAll('#bus-tabs .tab').forEach(tab => {
+            tab.addEventListener('click',()=>{
+                busDir = tab.dataset.dir;
+                activateTab(tab);
+                renderBusList();
+            });
+        });
+
+        // --- Swipe up to expand, swipe down (at top) to collapse ---
+        const depEl = document.getElementById('departures');
+        let touchStartY = null;
+        function onTouchStart(e){ touchStartY = e.touches[0].clientY; }
+        function onTouchEnd(e){
+            if (touchStartY===null) return;
+            const dy = e.changedTouches[0].clientY - touchStartY;
+            if (!expanded && dy < -40) setExpanded(true);
+            else if (expanded && dy > 60 && depEl.scrollTop <= 0) setExpanded(false);
+            touchStartY = null;
+        }
+        depEl.addEventListener('touchstart',onTouchStart,{passive:true});
+        depEl.addEventListener('touchend',onTouchEnd,{passive:true});
+        const hintEl = document.getElementById('more-hint');
+        hintEl.addEventListener('touchstart',onTouchStart,{passive:true});
+        hintEl.addEventListener('touchend',onTouchEnd,{passive:true});
+        hintEl.addEventListener('click',()=>setExpanded(true));
+
         // --- Main refresh ---
         async function refresh() {
             try {
-                const deps = await fetchSBahn();
-                renderDeps(deps);
-                renderDisruptions(extractDisruptions(deps));
+                rawSbahn = await fetchSBahn();
+                renderDeps();
+                renderDisruptions(extractDisruptions(rawSbahn));
                 document.getElementById('error-ind').classList.remove('visible');
             } catch(e) {
                 console.error('Refresh failed:',e);
