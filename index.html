@@ -130,6 +130,14 @@
         .sbahn-glyph.dbag-four { font-family:'DBAG Four'; }
         .sbahn-dir { font-size:17px; color:rgba(255,255,255,0.75); }
         .sbahn-wrap { display:inline-flex; align-items:center; }
+        /* Readable badge for non-S-Bahn lines (U-Bahn, regional, express) */
+        .line-badge {
+            display:inline-flex; align-items:center; justify-content:center;
+            font-family:'DB Head', Arial, sans-serif; font-weight:bold;
+            color:#fff; font-size:22px; line-height:1;
+            padding:3px 9px; border-radius:4px; min-width:34px;
+            position:relative; top:-2px; margin-left:6px;
+        }
 
         .delay-badge {
             display:inline-block; background:var(--white);
@@ -400,6 +408,10 @@
             S5:'#FF5900',S7:'#6E3B90',S75:'#6E3B90',
             S8:'#6DB540',S85:'#6DB540',S9:'#8B1C62'
         };
+        const UBAHN_COLORS = {
+            U1:'#7DAD4C',U2:'#DA421E',U3:'#16683D',U4:'#F0D722',U5:'#7E5330',
+            U6:'#8C6DAB',U7:'#528DBA',U8:'#224F86',U9:'#F3791D'
+        };
         const SOUTHBOUND = ['schöneweide','köpenick','müggelschlößchenweg','grünau','adlershof','rudow','bohnsdorf'];
 
         let depData = [];        // currently rendered departures (index target for detail modal)
@@ -439,7 +451,7 @@
                 .replace(/<br\s*\/?>/gi,'<br>')
                 .replace(/<(?!\/?a[ >]|\/?br>)[^>]*>/gi,'');
         }
-        function lineColor(name) { return LINE_COLORS[name] || '#999'; }
+        function lineColor(name) { return LINE_COLORS[name] || UBAHN_COLORS[name] || '#999'; }
         const LINE_GLYPHS = {
             S8:  {char:'H', font:'dbag-one'},
             S9:  {char:'I', font:'dbag-one'},
@@ -450,7 +462,7 @@
             const g = LINE_GLYPHS[lineName];
             const glyph = g
                 ? '<span class="sbahn-glyph '+g.font+'" style="color:'+color+'">'+g.char+'</span>'
-                : '<span class="sbahn-glyph dbag-one" style="color:'+color+'">'+esc(lineName)+'</span>';
+                : '<span class="line-badge" style="background:'+color+'">'+esc(lineName)+'</span>';
             let dirHtml = '';
             if (currentStation.isDefault && platform) {
                 const dirLabel = platform==='3'?'Südliche':'Nördliche';
@@ -477,10 +489,14 @@
 
         // --- BVG REST API (CORS ✓) ---
         async function fetchSBahn() {
+            // Default station: S-Bahn only. Other stations also show U-Bahn + regional.
+            const wide = !currentStation.isDefault;
             const p = new URLSearchParams({
                 duration:'180',results:'40',remarks:'true',
-                suburban:'true',bus:'false',tram:'false',
-                subway:'false',express:'false',ferry:'false',regional:'false'
+                suburban:'true', bus:'false', tram:'false', ferry:'false',
+                subway: wide?'true':'false',
+                regional: wide?'true':'false',
+                express: wide?'true':'false'
             });
             const r = await fetch(API+'/stops/'+currentStation.id+'/departures?'+p);
             if (!r.ok) throw new Error(r.status);
