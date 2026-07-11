@@ -293,14 +293,8 @@
     </div>
     <hr class="sep">
 
-    <!-- Train Type Tabs (shown only when a station has more than two types) -->
-    <div class="tab-bar" id="type-tabs" style="display:none"></div>
-
-    <!-- Track Tabs -->
-    <div class="tab-bar" id="track-tabs">
-        <div class="tab active" data-track="all">Alle</div>
-        <div class="tab" data-track="4">Gleis 4 · Nord</div>
-        <div class="tab" data-track="3">Gleis 3 · Süd</div>
+    <!-- Filter Tabs (train types + tracks; only shown when >1 option exists) -->
+    <div class="tab-bar" id="filter-tabs" style="display:none">
         <button class="back-btn" id="dep-back" style="display:none">Zurückbleiben Bitte!</button>
     </div>
 
@@ -436,8 +430,7 @@
         let depData = [];        // currently rendered departures (index target for detail modal)
         let rawSbahn = [];       // full fetched S-Bahn departures
         let disruptData = [];
-        let selectedTrack = 'all'; // 'all' | platform id
-        let selectedType = 'all';  // 'all' | ice | ic | re | rb | sbahn | ubahn | tram
+        let activeFilter = 'all';  // 'all' | 'type:<key>' | 'track:<platform>'
         let expanded = false;      // swiped-up view showing later trains
         let busDeps = [];          // last fetched bus departures
         let busDir = 'nord';       // 'nord' | 'sued'
@@ -593,85 +586,80 @@
             return out;
         }
 
-        // --- Filter S-Bahn by selected track ---
-        function filteredSbahn() {
+        // --- Base departures for the current station (default keeps Gleis 3 & 4) ---
+        function baseSbahn() {
+            if (!currentStation.isDefault) return rawSbahn;
             return rawSbahn.filter(d => {
                 const platform = d.platform||d.plannedPlatform||'';
-                // Default station only monitors Gleis 3 & 4
-                if (currentStation.isDefault && platform!=='3' && platform!=='4') return false;
-                if (selectedTrack!=='all' && platform!==selectedTrack) return false;
-                if (selectedType!=='all' && trainType(d)!==selectedType) return false;
-                return true;
+                return platform==='3' || platform==='4';
             });
         }
 
-        // --- Train-type filter (shown only when a station has >2 types) ---
+        // --- Apply the single active filter (all | type:X | track:Y) ---
+        function filteredSbahn() {
+            const list = baseSbahn();
+            if (activeFilter==='all') return list;
+            if (activeFilter.slice(0,5)==='type:') {
+                const t = activeFilter.slice(5);
+                return list.filter(d => trainType(d)===t);
+            }
+            if (activeFilter.slice(0,6)==='track:') {
+                const p = activeFilter.slice(6);
+                return list.filter(d => (d.platform||d.plannedPlatform||'')===p);
+            }
+            return list;
+        }
+
         function presentTypes() {
             const set = new Set();
-            rawSbahn.forEach(d => {
+            baseSbahn().forEach(d => {
                 const t = trainType(d);
                 if (t!=='bus' && t!=='other') set.add(t);
             });
             return set;
         }
-        function renderTypeTabs() {
-            const bar = document.getElementById('type-tabs');
-            const present = presentTypes();
-            if (present.size <= 2) {
-                bar.style.display = 'none';
-                bar.innerHTML = '';
-                selectedType = 'all';
-                return;
-            }
-            bar.style.display = 'flex';
-            const opts = [{key:'all',label:'Alle'}]
-                .concat(TRAIN_TYPES.filter(t => present.has(t.key)));
-            if (!opts.some(o => o.key===selectedType)) selectedType = 'all';
-            bar.innerHTML = '';
-            opts.forEach(o => {
-                const t = document.createElement('div');
-                t.className = 'tab'+(o.key===selectedType?' active':'');
-                t.textContent = o.label;
-                t.addEventListener('click', () => {
-                    selectedType = o.key;
-                    bar.querySelectorAll('.tab').forEach(x => x.classList.toggle('active', x===t));
-                    renderDeps();
-                });
-                bar.appendChild(t);
-            });
-        }
-
-        // --- Build track-tab options (static for default, dynamic otherwise) ---
-        function trackOptions() {
-            if (currentStation.isDefault) {
-                return [
-                    {track:'all', label:'Alle'},
-                    {track:'4', label:'Gleis 4 · Nord'},
-                    {track:'3', label:'Gleis 3 · Süd'}
-                ];
-            }
-            const plats = [...new Set(rawSbahn
+        function presentTracks() {
+            return [...new Set(baseSbahn()
                 .map(d => d.platform||d.plannedPlatform||'')
                 .filter(Boolean))].sort((a,b)=>a.localeCompare(b,undefined,{numeric:true}));
-            const opts = [{track:'all', label:'Alle'}];
-            plats.forEach(p => opts.push({track:p, label:'Gleis '+p}));
+        }
+        function trackLabel(p) {
+            if (currentStation.isDefault) {
+                if (p==='4') return 'Gleis 4 · Nord';
+                if (p==='3') return 'Gleis 3 · Süd';
+            }
+            return 'Gleis '+p;
+        }
+
+        // --- Build the unified filter options (types then tracks) ---
+        function filterOptions() {
+            const types = presentTypes();
+            const tracks = presentTracks();
+            const showTypes = types.size >= 2;
+            const showTracks = tracks.length >= 2;
+            if (!showTypes && !showTracks) return [];
+            const opts = [{id:'all', label:'Alle'}];
+            if (showTypes) TRAIN_TYPES.forEach(t => {
+                if (types.has(t.key)) opts.push({id:'type:'+t.key, label:t.label});
+            });
+            if (showTracks) tracks.forEach(p => opts.push({id:'track:'+p, label:trackLabel(p)}));
             return opts;
         }
 
-        // --- Render track tabs, preserving the back button ---
-        function renderTrackTabs() {
-            const bar = document.getElementById('track-tabs');
+        // --- Render the single filter bar, preserving the back button ---
+        function renderFilterTabs() {
+            const bar = document.getElementById('filter-tabs');
             const back = document.getElementById('dep-back');
             bar.querySelectorAll('.tab').forEach(t => t.remove());
-            const opts = trackOptions();
-            if (!opts.some(o => o.track===selectedTrack)) selectedTrack = 'all';
+            const opts = filterOptions();
+            if (!opts.some(o => o.id===activeFilter)) activeFilter = 'all';
+            bar.style.display = (opts.length || expanded) ? 'flex' : 'none';
             opts.forEach(o => {
                 const t = document.createElement('div');
-                t.className = 'tab'+(o.track===selectedTrack?' active':'');
-                t.dataset.track = o.track;
+                t.className = 'tab'+(o.id===activeFilter?' active':'');
                 t.textContent = o.label;
                 t.addEventListener('click', () => {
-                    selectedTrack = o.track;
+                    activeFilter = o.id;
                     bar.querySelectorAll('.tab').forEach(x => x.classList.toggle('active', x===t));
                     renderDeps();
                 });
@@ -682,8 +670,7 @@
         // --- Render departures ---
         function renderDeps() {
             const el = document.getElementById('departures');
-            renderTypeTabs();
-            renderTrackTabs();
+            renderFilterTabs();
             const sbahn = filteredSbahn();
             const upcoming = expanded ? sbahn : sbahn.slice(0, MAX_DEPS);
             depData = upcoming;
@@ -891,8 +878,7 @@
                 ? DEFAULT_STATION
                 : { id, name, busId:id, busName:name, isDefault:false };
             document.getElementById('station-name').innerHTML = stationLabel(currentStation.name);
-            selectedTrack = 'all';
-            selectedType = 'all';
+            activeFilter = 'all';
             setExpanded(false);
             closeModal('station-modal');
             document.getElementById('departures').innerHTML =
@@ -926,7 +912,7 @@
             siblings.forEach(t => t.classList.toggle('active', t===tab));
         }
 
-        // --- Track tabs are (re)built by renderTrackTabs(); back button collapses ---
+        // --- Filter tabs are (re)built by renderFilterTabs(); back button collapses ---
         document.getElementById('dep-back').addEventListener('click',()=>setExpanded(false));
 
         // --- Bus direction tabs ---
