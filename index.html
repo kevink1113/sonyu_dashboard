@@ -44,7 +44,25 @@
         .station-name {
             text-align:center; font-size:60px;
             padding:24px 0 18px; letter-spacing:1px;
+            cursor:pointer;
         }
+        .station-name:active { opacity:0.7; }
+        .station-name .chevron { font-size:26px; opacity:0.5; margin-left:12px; vertical-align:middle; }
+
+        /* Station picker */
+        .station-search {
+            width:100%; padding:14px 16px; font-size:22px;
+            font-family:inherit; background:var(--bg-dark);
+            border:1px solid var(--sep); color:var(--white);
+            outline:none; margin-bottom:8px;
+        }
+        .station-search::placeholder { color:rgba(255,255,255,0.4); }
+        .station-result {
+            padding:14px 12px; font-size:22px; cursor:pointer;
+            border-bottom:1px solid rgba(255,255,255,0.1);
+        }
+        .station-result:last-child { border-bottom:none; }
+        .station-result:active { background:rgba(255,255,255,0.1); }
         .sep { border:none; border-top:1px solid var(--sep); margin:0 var(--pad); }
 
         /* ── Header Bar ── */
@@ -247,7 +265,7 @@
 <body>
 
     <!-- Station Name -->
-    <div class="station-name">S Plänterwald</div>
+    <div class="station-name" id="station-name">S Plänterwald<span class="chevron">▾</span></div>
     <hr class="sep">
 
     <!-- Header Bar -->
@@ -270,7 +288,7 @@
         <div class="tab active" data-track="all">Alle</div>
         <div class="tab" data-track="4">Gleis 4 · Nord</div>
         <div class="tab" data-track="3">Gleis 3 · Süd</div>
-        <button class="back-btn" id="dep-back" style="display:none">‹ Zurück</button>
+        <button class="back-btn" id="dep-back" style="display:none">Zurückbleiben Bitte!</button>
     </div>
 
     <!-- Column Headers -->
@@ -342,6 +360,20 @@
         </div>
     </div>
 
+    <!-- Station Picker Modal -->
+    <div class="modal-overlay" id="station-modal">
+        <div class="modal">
+            <div class="modal-header">
+                <div class="modal-title">Station wählen</div>
+                <button class="modal-close" id="station-modal-close">✕</button>
+            </div>
+            <div class="modal-body">
+                <input type="text" id="station-search" class="station-search" placeholder="Haltestelle suchen…" autocomplete="off" autocapitalize="off" spellcheck="false">
+                <div id="station-results"></div>
+            </div>
+        </div>
+    </div>
+
     <div class="error-ind" id="error-ind">Verbindungsfehler</div>
 
     <script>
@@ -349,10 +381,17 @@
         'use strict';
 
         const API = 'https://v6.bvg.transport.rest';
-        const SBAHN_ID = '900191002';
-        const BUS_ID = '900191511';
         const REFRESH_MS = 30000;
         const MAX_DEPS = 6;
+
+        // Default station: S Plänterwald (S-Bahn stop + its bus stop have distinct IDs)
+        const DEFAULT_STATION = {
+            id:'900191002', name:'S Plänterwald',
+            busId:'900191511', busName:'Köpenicker Landstr./Dammweg',
+            isDefault:true
+        };
+        let currentStation = DEFAULT_STATION;
+        let stationResults = [];
 
         const LINE_COLORS = {
             S1:'#DD6BA1',S2:'#005F27',S25:'#005F27',S26:'#005F27',
@@ -409,11 +448,15 @@
         function sbahnIcon(lineName, platform) {
             const color = lineColor(lineName);
             const g = LINE_GLYPHS[lineName];
-            const dirLabel = platform==='3'?'Südliche':'Nördliche';
             const glyph = g
                 ? '<span class="sbahn-glyph '+g.font+'" style="color:'+color+'">'+g.char+'</span>'
                 : '<span class="sbahn-glyph dbag-one" style="color:'+color+'">'+esc(lineName)+'</span>';
-            return '<span class="sbahn-wrap"><span class="sbahn-dir">'+dirLabel+'</span>'+glyph+'</span>';
+            let dirHtml = '';
+            if (currentStation.isDefault && platform) {
+                const dirLabel = platform==='3'?'Südliche':'Nördliche';
+                dirHtml = '<span class="sbahn-dir">'+dirLabel+'</span>';
+            }
+            return '<span class="sbahn-wrap">'+dirHtml+glyph+'</span>';
         }
         function isNorthbound(dir) {
             if (!dir) return false;
@@ -439,7 +482,7 @@
                 suburban:'true',bus:'false',tram:'false',
                 subway:'false',express:'false',ferry:'false',regional:'false'
             });
-            const r = await fetch(API+'/stops/'+SBAHN_ID+'/departures?'+p);
+            const r = await fetch(API+'/stops/'+currentStation.id+'/departures?'+p);
             if (!r.ok) throw new Error(r.status);
             const d = await r.json();
             return Array.isArray(d) ? d : (d.departures||[]);
@@ -451,7 +494,7 @@
                 bus:'true',suburban:'false',tram:'false',
                 subway:'false',express:'false',ferry:'false',regional:'false'
             });
-            const r = await fetch(API+'/stops/'+BUS_ID+'/departures?'+p);
+            const r = await fetch(API+'/stops/'+currentStation.busId+'/departures?'+p);
             if (!r.ok) throw new Error(r.status);
             const d = await r.json();
             return Array.isArray(d) ? d : (d.departures||[]);
@@ -492,15 +535,55 @@
         function filteredSbahn() {
             return rawSbahn.filter(d => {
                 const platform = d.platform||d.plannedPlatform||'';
-                if (platform!=='3'&&platform!=='4') return false;
-                if (selectedTrack!=='all'&&platform!==selectedTrack) return false;
+                // Default station only monitors Gleis 3 & 4
+                if (currentStation.isDefault && platform!=='3' && platform!=='4') return false;
+                if (selectedTrack!=='all' && platform!==selectedTrack) return false;
                 return true;
             });
         }
 
-        // --- Render departures (Gleis 3 + 4) ---
+        // --- Build track-tab options (static for default, dynamic otherwise) ---
+        function trackOptions() {
+            if (currentStation.isDefault) {
+                return [
+                    {track:'all', label:'Alle'},
+                    {track:'4', label:'Gleis 4 · Nord'},
+                    {track:'3', label:'Gleis 3 · Süd'}
+                ];
+            }
+            const plats = [...new Set(rawSbahn
+                .map(d => d.platform||d.plannedPlatform||'')
+                .filter(Boolean))].sort((a,b)=>a.localeCompare(b,undefined,{numeric:true}));
+            const opts = [{track:'all', label:'Alle'}];
+            plats.forEach(p => opts.push({track:p, label:'Gleis '+p}));
+            return opts;
+        }
+
+        // --- Render track tabs, preserving the back button ---
+        function renderTrackTabs() {
+            const bar = document.getElementById('track-tabs');
+            const back = document.getElementById('dep-back');
+            bar.querySelectorAll('.tab').forEach(t => t.remove());
+            const opts = trackOptions();
+            if (!opts.some(o => o.track===selectedTrack)) selectedTrack = 'all';
+            opts.forEach(o => {
+                const t = document.createElement('div');
+                t.className = 'tab'+(o.track===selectedTrack?' active':'');
+                t.dataset.track = o.track;
+                t.textContent = o.label;
+                t.addEventListener('click', () => {
+                    selectedTrack = o.track;
+                    bar.querySelectorAll('.tab').forEach(x => x.classList.toggle('active', x===t));
+                    renderDeps();
+                });
+                bar.insertBefore(t, back);
+            });
+        }
+
+        // --- Render departures ---
         function renderDeps() {
             const el = document.getElementById('departures');
+            renderTrackTabs();
             const sbahn = filteredSbahn();
             const upcoming = expanded ? sbahn : sbahn.slice(0, MAX_DEPS);
             depData = upcoming;
@@ -516,7 +599,7 @@
                 const dir = d.direction||'';
                 const platform = d.platform||d.plannedPlatform||'';
                 // Skip entries with missing essential info
-                if (!line||!dir||!d.plannedWhen||!platform) return '';
+                if (!line||!dir||!d.plannedWhen) return '';
                 const plannedTime = fmtTimeShort(d.plannedWhen);
                 const isCx = !!d.cancelled;
                 const dm = delayMin(d.delay);
@@ -627,7 +710,7 @@
             const body = document.getElementById('bus-modal-body');
             const nord = busDir==='nord';
             document.getElementById('bus-modal-title').textContent =
-                'Köpenicker Landstr./Dammweg → '+(nord?'Nord':'Süd');
+                currentStation.busName+' → '+(nord?'Nord':'Süd');
             const filtered = busDeps.filter(d =>
                 !d.cancelled && (nord ? isNorthbound(d.direction) : !isNorthbound(d.direction))
             );
@@ -669,6 +752,67 @@
         document.getElementById('dep-modal-close').addEventListener('click',()=>closeModal('dep-modal'));
         document.getElementById('dis-modal-close').addEventListener('click',()=>closeModal('dis-modal'));
         document.getElementById('bus-modal-close').addEventListener('click',()=>closeModal('bus-modal'));
+        document.getElementById('station-modal-close').addEventListener('click',()=>closeModal('station-modal'));
+
+        // --- Station picker ---
+        function stationLabel(name) { return esc(name)+'<span class="chevron">▾</span>'; }
+
+        async function searchStations(q) {
+            const results = document.getElementById('station-results');
+            results.innerHTML = '<div class="no-data" style="padding:20px">Suche…</div>';
+            try {
+                const p = new URLSearchParams({query:q, results:'12', stops:'true', addresses:'false', poi:'false'});
+                const r = await fetch(API+'/locations?'+p);
+                if (!r.ok) throw new Error(r.status);
+                const list = await r.json();
+                stationResults = (Array.isArray(list)?list:[]).filter(s => s && s.id && s.name);
+                if (!stationResults.length) {
+                    results.innerHTML = '<div class="no-data" style="padding:20px">Keine Treffer</div>';
+                    return;
+                }
+                results.innerHTML = stationResults.map((s,i) =>
+                    '<div class="station-result" data-idx="'+i+'">'+esc(s.name)+'</div>'
+                ).join('');
+                results.querySelectorAll('.station-result').forEach(row => {
+                    row.addEventListener('click', () => {
+                        const s = stationResults[+row.dataset.idx];
+                        if (s) selectStation(s.id, s.name);
+                    });
+                });
+            } catch(e) {
+                results.innerHTML = '<div class="no-data" style="padding:20px">Suche fehlgeschlagen</div>';
+            }
+        }
+
+        function selectStation(id, name) {
+            currentStation = (id===DEFAULT_STATION.id)
+                ? DEFAULT_STATION
+                : { id, name, busId:id, busName:name, isDefault:false };
+            document.getElementById('station-name').innerHTML = stationLabel(currentStation.name);
+            selectedTrack = 'all';
+            setExpanded(false);
+            closeModal('station-modal');
+            document.getElementById('departures').innerHTML =
+                '<div class="no-data">Daten werden geladen…</div>';
+            rawSbahn = [];
+            refresh();
+        }
+
+        let searchTimer = null;
+        const stationSearch = document.getElementById('station-search');
+        stationSearch.addEventListener('input', e => {
+            const q = e.target.value.trim();
+            clearTimeout(searchTimer);
+            if (q.length < 2) { document.getElementById('station-results').innerHTML=''; return; }
+            searchTimer = setTimeout(() => searchStations(q), 300);
+        });
+        document.getElementById('station-name').addEventListener('click', () => {
+            stationSearch.value = '';
+            stationResults = [];
+            document.getElementById('station-results').innerHTML = '';
+            openModal('station-modal');
+            setTimeout(() => stationSearch.focus(), 50);
+        });
 
         document.getElementById('disrupt-area').addEventListener('click',showDisruptDetail);
         document.getElementById('bus-btn').addEventListener('click',showBusModal);
@@ -679,14 +823,7 @@
             siblings.forEach(t => t.classList.toggle('active', t===tab));
         }
 
-        // --- Track tabs ---
-        document.querySelectorAll('#track-tabs .tab').forEach(tab => {
-            tab.addEventListener('click',()=>{
-                selectedTrack = tab.dataset.track;
-                activateTab(tab);
-                renderDeps();
-            });
-        });
+        // --- Track tabs are (re)built by renderTrackTabs(); back button collapses ---
         document.getElementById('dep-back').addEventListener('click',()=>setExpanded(false));
 
         // --- Bus direction tabs ---
