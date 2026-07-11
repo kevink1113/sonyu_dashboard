@@ -159,7 +159,7 @@
         /* ── Tabs ── */
         .tab-bar {
             display:flex; align-items:stretch;
-            padding:0 var(--pad); gap:6px;
+            margin:0 var(--pad); gap:6px;
             border-bottom:1px solid var(--sep);
             overflow-x:auto; scrollbar-width:none;
         }
@@ -181,7 +181,7 @@
             display:flex; align-items:center; gap:8px;
         }
         .back-btn:active { background:rgba(255,255,255,0.3); }
-        .modal .tab-bar { padding:0 26px; }
+        .modal .tab-bar { margin:0; padding:0 26px; }
 
         /* Expanded (swiped-up) departure list */
         .dep-section.expanded { overflow:hidden auto; }
@@ -859,15 +859,19 @@
         // --- Bus modal ---
         function renderBusList() {
             const body = document.getElementById('bus-modal-body');
+            // Nord/Süd split only makes sense for the default S Plänterwald bus stop.
+            const useDir = currentStation.isDefault;
+            document.getElementById('bus-tabs').style.display = useDir ? 'flex' : 'none';
             const nord = busDir==='nord';
             document.getElementById('bus-modal-title').textContent =
-                currentStation.busName+' → '+(nord?'Nord':'Süd');
+                useDir ? currentStation.busName+' → '+(nord?'Nord':'Süd') : currentStation.busName;
             const filtered = busDeps.filter(d =>
-                !d.cancelled && (nord ? isNorthbound(d.direction) : !isNorthbound(d.direction))
+                !d.cancelled && (!useDir || (nord ? isNorthbound(d.direction) : !isNorthbound(d.direction)))
             );
             const up = filtered.slice(0,6);
             if (!up.length) {
-                body.innerHTML='<div class="no-data">Keine Busse Richtung '+(nord?'Nord':'Süd')+'</div>';
+                body.innerHTML='<div class="no-data">'+
+                    (useDir ? 'Keine Busse Richtung '+(nord?'Nord':'Süd') : 'Keine Busabfahrten')+'</div>';
                 return;
             }
             body.innerHTML = up.map(d => {
