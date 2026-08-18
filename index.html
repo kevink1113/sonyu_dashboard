@@ -151,6 +151,24 @@
             padding:2px 8px; border-radius:0;
             vertical-align:middle; position:relative; top:-4px;
         }
+        /* ── Cancellation summary (thin row above departures) ── */
+        .cancel-info {
+            display:flex; align-items:center; gap:14px;
+            margin:2px var(--pad) 6px;
+            padding:5px 12px;
+            background:rgba(204,0,0,0.15);
+            border-left:4px solid #cc0000;
+            font-size:22px; line-height:1.2;
+        }
+        .cancel-info .ci-label {
+            color:#ff6b6b; font-weight:bold; flex-shrink:0;
+            white-space:nowrap;
+        }
+        .cancel-info .ci-list {
+            flex:1; min-width:0;
+            color:rgba(255,255,255,0.9);
+            overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+        }
         .no-data {
             font-size:24px; text-align:center;
             color:rgba(255,255,255,0.45); padding:40px var(--pad);
@@ -361,6 +379,9 @@
         </div>
     </div>
     <hr class="sep">
+
+    <!-- Cancellation summary (populated when trains are cancelled) -->
+    <div class="cancel-info" id="cancel-info" style="display:none"></div>
 
     <!-- Departures -->
     <div class="dep-section" id="departures">
@@ -728,11 +749,36 @@
                 (opts.length || expanded || !currentStation.isDefault) ? 'flex' : 'none';
         }
 
+        // --- Render the thin cancellation summary above the departures ---
+        // Combines every cancelled departure in the current (filtered) list into
+        // a single compact row; hidden when nothing is cancelled.
+        function renderCancelInfo(list) {
+            const el = document.getElementById('cancel-info');
+            const seen = new Set();
+            const items = [];
+            for (const d of list) {
+                if (!d.cancelled) continue;
+                const line = d.line?.name || 'Zug';
+                const dir = d.direction || '';
+                const key = line+'|'+dir;
+                if (seen.has(key)) continue;
+                seen.add(key);
+                items.push(dir ? line+' → '+dir : line);
+            }
+            if (!items.length) { el.style.display = 'none'; el.innerHTML = ''; return; }
+            const label = items.length===1 ? 'Fällt aus' : items.length+' Züge fallen aus';
+            el.innerHTML =
+                '<span class="ci-label">'+esc(label)+'</span>'+
+                '<span class="ci-list">'+esc(items.join(' · '))+'</span>';
+            el.style.display = 'flex';
+        }
+
         // --- Render departures ---
         function renderDeps() {
             const el = document.getElementById('departures');
             renderFilterTabs();
             const sbahn = filteredSbahn();
+            renderCancelInfo(sbahn);
             const upcoming = expanded ? sbahn : sbahn.slice(0, MAX_DEPS);
             depData = upcoming;
 
